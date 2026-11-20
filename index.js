@@ -5,6 +5,7 @@ import { createApp } from "./src/app.js";
 import { loadConfig } from "./src/config.js";
 import { createDatabaseManager } from "./src/database.js";
 import { sanitizeMessage } from "./src/middleware.js";
+import { createServiceRepository } from "./src/services/serviceRepository.js";
 
 const logger = {
   info: (message) => console.info(message),
@@ -26,7 +27,8 @@ async function start() {
     uri: config.mongodbUri,
     logger,
   });
-  const app = createApp({ config, database });
+  const services = createServiceRepository({ database });
+  const app = createApp({ config, database, services });
   const server = http.createServer(app);
 
   let shutdownPromise = null;
@@ -73,12 +75,27 @@ async function start() {
     shutdown("server error");
   });
 
+  let databaseConnected = false;
   try {
     await database.connect();
+    databaseConnected = true;
   } catch (error) {
     logger.error(
       `MongoDB initial connection failed; readiness will report unavailable: ${sanitizeMessage(error.message, [config.mongodbUri])}`,
     );
+  }
+
+  if (databaseConnected) {
+    try {
+      const result = await services.ensureIndexes();
+      logger.info(
+        `Service indexes verified; created ${result.created.length} missing index(es).`,
+      );
+    } catch (error) {
+      logger.error(
+        `Service index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, [config.mongodbUri])}`,
+      );
+    }
   }
 
   await new Promise((resolve, reject) => {

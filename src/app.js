@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import { createErrorHandler, notFoundHandler } from "./middleware.js";
+import { createServicesRouter } from "./services/routes.js";
+import { createServiceRepository } from "./services/serviceRepository.js";
 
 function createCorsOptions(config) {
   const allowedOrigins = new Set(config.clientOrigins);
@@ -22,11 +24,12 @@ function createCorsOptions(config) {
   };
 }
 
-export function createApp({ config, database }) {
+export function createApp({ config, database, services } = {}) {
   if (!config || !database) {
     throw new Error("createApp requires config and database.");
   }
 
+  const serviceRepository = services ?? createServiceRepository({ database });
   const app = express();
 
   app.disable("x-powered-by");
@@ -56,6 +59,8 @@ export function createApp({ config, database }) {
       },
     });
   });
+
+  app.use("/api/services", createServicesRouter({ repository: serviceRepository }));
 
   app.use(notFoundHandler);
   app.use(createErrorHandler({
