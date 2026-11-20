@@ -2,10 +2,12 @@ import http from "node:http";
 import "dotenv/config";
 import { MongoClient } from "mongodb";
 import { createApp } from "./src/app.js";
+import { createJwtVerifier } from "./src/auth/jwtVerifier.js";
 import { loadConfig } from "./src/config.js";
 import { createDatabaseManager } from "./src/database.js";
 import { sanitizeMessage } from "./src/middleware.js";
 import { createServiceRepository } from "./src/services/serviceRepository.js";
+import { createUserRepository } from "./src/users/userRepository.js";
 
 const logger = {
   info: (message) => console.info(message),
@@ -28,7 +30,14 @@ async function start() {
     logger,
   });
   const services = createServiceRepository({ database });
-  const app = createApp({ config, database, services });
+  const users = createUserRepository({ database });
+  const tokenVerifier = createJwtVerifier({
+    jwksUrl: config.authJwtJwksUrl,
+    issuer: config.authJwtIssuer,
+    audience: config.authJwtAudience,
+    algorithms: config.authJwtAlgorithms,
+  });
+  const app = createApp({ config, database, services, users, tokenVerifier });
   const server = http.createServer(app);
 
   let shutdownPromise = null;
@@ -94,6 +103,17 @@ async function start() {
     } catch (error) {
       logger.error(
         `Service index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, [config.mongodbUri])}`,
+      );
+    }
+
+    try {
+      const result = await users.ensureIndexes();
+      logger.info(
+        `User indexes verified; created ${result.created.length} missing index(es).`,
+      );
+    } catch (error) {
+      logger.error(
+        `User index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, [config.mongodbUri])}`,
       );
     }
   }

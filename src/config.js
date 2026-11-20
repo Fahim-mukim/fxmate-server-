@@ -1,6 +1,7 @@
 const DEFAULT_PORT = 5000;
 const DEFAULT_DEVELOPMENT_ORIGIN = "http://localhost:3000";
 const MONGODB_URI_PREFIXES = ["mongodb://", "mongodb+srv://"];
+const SUPPORTED_JWT_ALGORITHMS = new Set(["EdDSA"]);
 
 function parsePort(rawValue) {
   if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") {
@@ -53,6 +54,54 @@ function parseOrigins(rawValue) {
   });
 }
 
+function parseConfiguredUrl(rawValue, variableName) {
+  const trimmed = String(rawValue || "").trim();
+  if (!trimmed) {
+    throw new Error(`${variableName} is required.`);
+  }
+
+  const normalized = trimmed.replace(/\/+$/, "");
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error(`${variableName} must be a valid URL.`);
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`${variableName} must use http or https.`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(`${variableName} must not contain credentials.`);
+  }
+
+  return normalized;
+}
+
+function parseJwtAlgorithms(rawValue) {
+  const algorithms = String(rawValue || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (algorithms.length === 0) {
+    throw new Error("AUTH_JWT_ALGORITHMS must contain at least one algorithm.");
+  }
+  if (algorithms.some((algorithm) => !SUPPORTED_JWT_ALGORITHMS.has(algorithm))) {
+    throw new Error("AUTH_JWT_ALGORITHMS contains an unsupported algorithm.");
+  }
+
+  return Object.freeze([...new Set(algorithms)]);
+}
+
+function parseProvisioningSecret(rawValue) {
+  const secret = String(rawValue || "");
+  if (secret.trim() === "") {
+    throw new Error("FIXMATE_PROVISIONING_SECRET is required.");
+  }
+  return secret;
+}
+
 export function loadConfig(env = process.env) {
   const nodeEnv = String(env.NODE_ENV || "development").trim() || "development";
   const isProduction = nodeEnv === "production";
@@ -77,11 +126,22 @@ export function loadConfig(env = process.env) {
     clientOrigins = [DEFAULT_DEVELOPMENT_ORIGIN];
   }
 
+  const authJwtIssuer = parseConfiguredUrl(env.AUTH_JWT_ISSUER, "AUTH_JWT_ISSUER");
+  const authJwtJwksUrl = parseConfiguredUrl(env.AUTH_JWT_JWKS_URL, "AUTH_JWT_JWKS_URL");
+  const authJwtAudience = parseConfiguredUrl(env.AUTH_JWT_AUDIENCE, "AUTH_JWT_AUDIENCE");
+  const authJwtAlgorithms = parseJwtAlgorithms(env.AUTH_JWT_ALGORITHMS);
+  const provisioningSecret = parseProvisioningSecret(env.FIXMATE_PROVISIONING_SECRET);
+
   return Object.freeze({
     nodeEnv,
     isProduction,
     port,
     mongodbUri,
     clientOrigins: Object.freeze([...new Set(clientOrigins)]),
+    authJwtIssuer,
+    authJwtJwksUrl,
+    authJwtAudience,
+    authJwtAlgorithms,
+    provisioningSecret,
   });
 }

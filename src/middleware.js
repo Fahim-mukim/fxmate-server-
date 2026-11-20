@@ -46,7 +46,11 @@ export function notFoundHandler(req, res) {
   });
 }
 
-export function createErrorHandler({ isProduction = false, mongodbUri = "" } = {}) {
+export function createErrorHandler({
+  isProduction = false,
+  mongodbUri = "",
+  secretValues = [],
+} = {}) {
   return function errorHandler(error, req, res, next) {
     if (res.headersSent) {
       return next(error);
@@ -55,7 +59,7 @@ export function createErrorHandler({ isProduction = false, mongodbUri = "" } = {
     const statusCode = statusCodeFrom(error);
     const message = sanitizeMessage(
       error?.message || defaultMessageFor(statusCode),
-      [mongodbUri],
+      [mongodbUri, ...secretValues],
     );
     const publicMessage =
       statusCode === 500 && isProduction ? "Internal server error." : message;

@@ -11,12 +11,33 @@ function testConfig(overrides = {}) {
     isProduction: false,
     mongodbUri: "mongodb://127.0.0.1:27017",
     clientOrigins: [ALLOWED_ORIGIN],
+    authJwtIssuer: "http://localhost:3000",
+    authJwtJwksUrl: "http://localhost:3000/api/auth/jwks",
+    authJwtAudience: "http://localhost:3000",
+    authJwtAlgorithms: ["EdDSA"],
+    provisioningSecret: "test-only-provisioning-secret",
     ...overrides,
   };
 }
 
 function testDatabase(isReady = true) {
-  return { isReady: () => isReady };
+  const collection = {
+    async findOne() {
+      return null;
+    },
+    async updateOne() {
+      return { upsertedCount: 1 };
+    },
+    async indexes() {
+      return [];
+    },
+    async createIndex() {},
+  };
+
+  return {
+    isReady: () => isReady,
+    getDb: () => ({ collection: () => collection }),
+  };
 }
 
 async function withServer(app, callback) {

@@ -170,6 +170,11 @@ function testConfig() {
     isProduction: false,
     mongodbUri: "mongodb://127.0.0.1:27017",
     clientOrigins: [ALLOWED_ORIGIN],
+    authJwtIssuer: "http://localhost:3000",
+    authJwtJwksUrl: "http://localhost:3000/api/auth/jwks",
+    authJwtAudience: "http://localhost:3000",
+    authJwtAlgorithms: ["EdDSA"],
+    provisioningSecret: "test-only-provisioning-secret",
   };
 }
 
