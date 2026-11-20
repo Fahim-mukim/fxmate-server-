@@ -14,12 +14,27 @@ const logger = {
   error: (message) => console.error(message),
 };
 
+function sensitiveValues(config) {
+  const values = [
+    process.env.MONGODB_URI,
+    process.env.FIXMATE_TEST_MONGODB_URI,
+    process.env.FIXMATE_PROVISIONING_SECRET,
+    process.env.FIXMATE_TEST_PROVISIONING_SECRET,
+  ];
+
+  if (config) {
+    values.push(config.mongodbUri, config.provisioningSecret);
+  }
+
+  return values.filter((value) => typeof value === "string" && value.length > 0);
+}
+
 async function start() {
   let config;
   try {
     config = loadConfig(process.env);
   } catch (error) {
-    logger.error(`Configuration error: ${sanitizeMessage(error.message, [process.env.MONGODB_URI])}`);
+    logger.error(`Configuration error: ${sanitizeMessage(error.message, sensitiveValues())}`);
     process.exitCode = 1;
     return;
   }
@@ -27,6 +42,7 @@ async function start() {
   const database = createDatabaseManager({
     MongoClient,
     uri: config.mongodbUri,
+    databaseName: config.databaseName,
     logger,
   });
   const services = createServiceRepository({ database });
@@ -57,7 +73,7 @@ async function start() {
 
         server.close((error) => {
           if (error) {
-            logger.error(`HTTP close error: ${sanitizeMessage(error.message, [config.mongodbUri])}`);
+            logger.error(`HTTP close error: ${sanitizeMessage(error.message, sensitiveValues(config))}`);
           }
           resolve();
         });
@@ -70,7 +86,7 @@ async function start() {
       try {
         await database.close();
       } catch (error) {
-        logger.error(`MongoDB close error: ${sanitizeMessage(error.message, [config.mongodbUri])}`);
+        logger.error(`MongoDB close error: ${sanitizeMessage(error.message, sensitiveValues(config))}`);
       }
 
       logger.info("Shutdown complete.");
@@ -80,7 +96,7 @@ async function start() {
   };
 
   server.on("error", (error) => {
-    logger.error(`HTTP server error: ${sanitizeMessage(error.message, [config.mongodbUri])}`);
+    logger.error(`HTTP server error: ${sanitizeMessage(error.message, sensitiveValues(config))}`);
     shutdown("server error");
   });
 
@@ -90,7 +106,7 @@ async function start() {
     databaseConnected = true;
   } catch (error) {
     logger.error(
-      `MongoDB initial connection failed; readiness will report unavailable: ${sanitizeMessage(error.message, [config.mongodbUri])}`,
+      `MongoDB initial connection failed; readiness will report unavailable: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
     );
   }
 
@@ -102,7 +118,7 @@ async function start() {
       );
     } catch (error) {
       logger.error(
-        `Service index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, [config.mongodbUri])}`,
+        `Service index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
       );
     }
 
@@ -113,7 +129,7 @@ async function start() {
       );
     } catch (error) {
       logger.error(
-        `User index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, [config.mongodbUri])}`,
+        `User index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
       );
     }
   }
@@ -142,6 +158,6 @@ async function start() {
 }
 
 start().catch((error) => {
-  logger.error(`Startup failed: ${sanitizeMessage(error.message, [process.env.MONGODB_URI])}`);
+  logger.error(`Startup failed: ${sanitizeMessage(error.message, sensitiveValues())}`);
   process.exitCode = 1;
 });
