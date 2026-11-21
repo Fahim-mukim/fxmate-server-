@@ -17,9 +17,7 @@ const logger = {
 function sensitiveValues(config) {
   const values = [
     process.env.MONGODB_URI,
-    process.env.FIXMATE_TEST_MONGODB_URI,
     process.env.FIXMATE_PROVISIONING_SECRET,
-    process.env.FIXMATE_TEST_PROVISIONING_SECRET,
   ];
 
   if (config) {
