@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import { createBookingRepository } from "./bookings/bookingRepository.js";
+import { createBookingsRouter } from "./bookings/routes.js";
 import { createAuthMiddleware } from "./auth/middleware.js";
 import { createAuthRouter } from "./auth/routes.js";
 import { createJwtVerifier } from "./auth/jwtVerifier.js";
@@ -33,6 +35,7 @@ export function createApp({
   config,
   database,
   services,
+  bookings,
   users,
   tokenVerifier,
   authMiddleware,
@@ -42,6 +45,7 @@ export function createApp({
   }
 
   const serviceRepository = services ?? createServiceRepository({ database });
+  const bookingRepository = bookings ?? createBookingRepository({ database });
   const userRepository = users ?? createUserRepository({ database });
   const verifier = tokenVerifier ?? createJwtVerifier({
     jwksUrl: config.authJwtJwksUrl,
@@ -91,6 +95,10 @@ export function createApp({
   }));
   app.use("/api/services", createServicesRouter({
     repository: serviceRepository,
+    middleware,
+  }));
+  app.use("/api/bookings", createBookingsRouter({
+    repository: bookingRepository,
     middleware,
   }));
 

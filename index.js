@@ -2,6 +2,7 @@ import http from "node:http";
 import "dotenv/config";
 import { MongoClient } from "mongodb";
 import { createApp } from "./src/app.js";
+import { createBookingRepository } from "./src/bookings/bookingRepository.js";
 import { createJwtVerifier } from "./src/auth/jwtVerifier.js";
 import { loadConfig } from "./src/config.js";
 import { createDatabaseManager } from "./src/database.js";
@@ -44,6 +45,7 @@ async function start() {
     logger,
   });
   const services = createServiceRepository({ database });
+  const bookings = createBookingRepository({ database });
   const users = createUserRepository({ database });
   const tokenVerifier = createJwtVerifier({
     jwksUrl: config.authJwtJwksUrl,
@@ -51,7 +53,7 @@ async function start() {
     audience: config.authJwtAudience,
     algorithms: config.authJwtAlgorithms,
   });
-  const app = createApp({ config, database, services, users, tokenVerifier });
+  const app = createApp({ config, database, services, bookings, users, tokenVerifier });
   const server = http.createServer(app);
 
   let shutdownPromise = null;
@@ -117,6 +119,17 @@ async function start() {
     } catch (error) {
       logger.error(
         `Service index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
+      );
+    }
+
+    try {
+      const result = await bookings.ensureIndexes();
+      logger.info(
+        `Booking indexes verified; created ${result.created.length} missing index(es).`,
+      );
+    } catch (error) {
+      logger.error(
+        `Booking index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
       );
     }
 
