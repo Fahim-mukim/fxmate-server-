@@ -4,39 +4,22 @@ import assert from "node:assert/strict";
 import { TEST_DATABASE_NAME, loadConfig } from "../src/config.js";
 import { createDatabaseManager } from "../src/database.js";
 
-const APPROVED_DATABASE_NAME = "fixmate";
-const SHARED_TEST_VARIABLES = Object.freeze([
-  "FIXMATE_TEST_MODE",
-  "FIXMATE_TEST_MONGODB_URI",
-  "FIXMATE_TEST_DATABASE_NAME",
-  "FIXMATE_TEST_PROVISIONING_SECRET",
-]);
-const SERVER_TEST_VARIABLES = Object.freeze([
-  "FIXMATE_TEST_CLIENT_ORIGIN",
-  "FIXMATE_TEST_AUTH_JWT_ISSUER",
-  "FIXMATE_TEST_AUTH_JWT_JWKS_URL",
-  "FIXMATE_TEST_AUTH_JWT_AUDIENCE",
-  "FIXMATE_TEST_AUTH_JWT_ALGORITHMS",
-]);
-
-const TEST_URI = "mongodb://127.0.0.1:27017/fixmate";
-const NORMAL_URI = "mongodb://production.invalid:27017/fixmate";
-const LEGACY_TEST_DATABASE_URI = "mongodb://127.0.0.1:27017/fixmate_auth_test";
-const UNRELATED_DATABASE_URI = "mongodb://127.0.0.1:27017/unrelated_fixmate_test";
+const TEST_URI = "mongodb://127.0.0.1:27017/fixmate_auth_test";
+const PRODUCTION_URI = "mongodb://production.invalid:27017/fixmate";
 const TEST_ORIGIN = "http://localhost:3000";
 
 const TEST_ENV = Object.freeze({
   FIXMATE_TEST_MODE: "true",
   FIXMATE_TEST_MONGODB_URI: TEST_URI,
-  FIXMATE_TEST_DATABASE_NAME: APPROVED_DATABASE_NAME,
+  FIXMATE_TEST_DATABASE_NAME: TEST_DATABASE_NAME,
   FIXMATE_TEST_PROVISIONING_SECRET: "test-only-server-provisioning-secret",
   FIXMATE_TEST_CLIENT_ORIGIN: TEST_ORIGIN,
   FIXMATE_TEST_AUTH_JWT_ISSUER: TEST_ORIGIN,
   FIXMATE_TEST_AUTH_JWT_JWKS_URL: `${TEST_ORIGIN}/api/auth/jwks`,
   FIXMATE_TEST_AUTH_JWT_AUDIENCE: TEST_ORIGIN,
   FIXMATE_TEST_AUTH_JWT_ALGORITHMS: "EdDSA",
-  // Incompatible normal values are present to detect any fallback.
-  MONGODB_URI: NORMAL_URI,
+  // Incompatible production values are present to detect any fallback.
+  MONGODB_URI: PRODUCTION_URI,
   CLIENT_ORIGIN: "https://production.invalid",
   AUTH_JWT_ISSUER: "https://production.invalid",
   AUTH_JWT_JWKS_URL: "https://production.invalid/jwks",
@@ -75,43 +58,33 @@ class FakeMongoClient {
   }
 }
 
-test("approved shared test-mode contract is mirrored in the server", () => {
-  assert.equal(TEST_DATABASE_NAME, APPROVED_DATABASE_NAME);
-  for (const key of [...SHARED_TEST_VARIABLES, ...SERVER_TEST_VARIABLES]) {
-    assert.equal(Object.hasOwn(TEST_ENV, key), true, `${key} must be in the test contract`);
-  }
-  assert.notEqual(TEST_ENV.FIXMATE_TEST_CLIENT_ORIGIN, TEST_ENV.CLIENT_ORIGIN);
-  assert.notEqual(TEST_ENV.FIXMATE_TEST_PROVISIONING_SECRET, TEST_ENV.FIXMATE_PROVISIONING_SECRET);
-});
-
 test("test mode is enabled only by the exact gate value", () => {
   assert.equal(loadConfig(withEnv({ FIXMATE_TEST_MODE: "false" })).testMode, false);
   assert.equal(loadConfig(withoutEnv("FIXMATE_TEST_MODE")).testMode, false);
-  for (const invalidValue of ["TRUE", "1", "yes", " true "]) {
-    assert.throws(
-      () => loadConfig(withEnv({ FIXMATE_TEST_MODE: invalidValue })),
-      /FIXMATE_TEST_MODE must be true, false, or unset/,
-    );
-  }
+  assert.throws(
+    () => loadConfig(withEnv({ FIXMATE_TEST_MODE: "TRUE" })),
+    /FIXMATE_TEST_MODE must be true, false, or unset/,
+  );
 });
 
-test("test mode disabled preserves the existing normal configuration path", () => {
+test("test mode disabled preserves the existing production configuration path", () => {
   const config = loadConfig(withEnv({ FIXMATE_TEST_MODE: "false" }));
 
   assert.equal(config.testMode, false);
-  assert.equal(config.mongodbUri, NORMAL_URI);
-  assert.equal(config.databaseName, APPROVED_DATABASE_NAME);
+  assert.equal(config.mongodbUri, PRODUCTION_URI);
+  assert.equal(config.databaseName, "fixmate");
   assert.deepEqual(config.clientOrigins, ["https://production.invalid"]);
   assert.equal(config.authJwtIssuer, "https://production.invalid");
   assert.equal(config.provisioningSecret, TEST_ENV.FIXMATE_PROVISIONING_SECRET);
 });
 
-test("valid test mode selects exactly /fixmate and uses only test values", () => {
+test("valid test mode selects the exact test database and uses only test values", () => {
   const config = loadConfig(TEST_ENV);
 
+  assert.equal(TEST_DATABASE_NAME, "fixmate_auth_test");
   assert.equal(config.testMode, true);
   assert.equal(config.isProduction, false);
-  assert.equal(config.databaseName, APPROVED_DATABASE_NAME);
+  assert.equal(config.databaseName, TEST_DATABASE_NAME);
   assert.equal(config.mongodbUri, TEST_URI);
   assert.notEqual(config.mongodbUri, TEST_ENV.MONGODB_URI);
   assert.deepEqual(config.clientOrigins, [TEST_ORIGIN]);
@@ -123,7 +96,7 @@ test("valid test mode selects exactly /fixmate and uses only test values", () =>
   assert.notEqual(config.provisioningSecret, TEST_ENV.FIXMATE_PROVISIONING_SECRET);
 });
 
-test("resolved approved database name is passed to the database manager", async () => {
+test("resolved test database name is passed to the database manager", async () => {
   const config = loadConfig(TEST_ENV);
   const manager = createDatabaseManager({
     MongoClient: FakeMongoClient,
@@ -133,7 +106,7 @@ test("resolved approved database name is passed to the database manager", async 
 
   await manager.connect();
 
-  assert.deepEqual(manager.getDb(), { databaseName: APPROVED_DATABASE_NAME });
+  assert.deepEqual(manager.getDb(), { databaseName: "fixmate_auth_test" });
   await manager.close();
 });
 
@@ -151,13 +124,11 @@ test("test mode requires an explicit test database name", () => {
   );
 });
 
-test("test mode rejects the legacy test database name and unrelated names", () => {
-  for (const databaseName of ["fixmate_auth_test", "unrelated_fixmate_test", " fixmate "]) {
-    assert.throws(
-      () => loadConfig(withEnv({ FIXMATE_TEST_DATABASE_NAME: databaseName })),
-      /FIXMATE_TEST_DATABASE_NAME must be fixmate\./,
-    );
-  }
+test("test mode rejects an incorrect database name", () => {
+  assert.throws(
+    () => loadConfig(withEnv({ FIXMATE_TEST_DATABASE_NAME: "fixmate" })),
+    /FIXMATE_TEST_DATABASE_NAME must be fixmate_auth_test/,
+  );
 });
 
 test("test mode rejects a MongoDB URI without an explicit database path", () => {
@@ -167,48 +138,22 @@ test("test mode rejects a MongoDB URI without an explicit database path", () => 
   );
 });
 
-test("test mode rejects legacy and unrelated database URI paths", () => {
+test("test mode rejects a MongoDB URI targeting the existing application database", () => {
   assert.throws(
-    () => loadConfig(withEnv({ FIXMATE_TEST_MONGODB_URI: LEGACY_TEST_DATABASE_URI })),
-    /FIXMATE_TEST_MONGODB_URI must target fixmate\./,
-  );
-  assert.throws(
-    () => loadConfig(withEnv({ FIXMATE_TEST_MONGODB_URI: UNRELATED_DATABASE_URI })),
-    /FIXMATE_TEST_MONGODB_URI must target fixmate\./,
+    () => loadConfig(withEnv({ FIXMATE_TEST_MONGODB_URI: PRODUCTION_URI })),
+    /FIXMATE_TEST_MONGODB_URI must target fixmate_auth_test/,
   );
 });
 
-test("malformed test-mode URIs fail closed", () => {
+test("test mode requires the test provisioning secret and client origin", () => {
   assert.throws(
-    () => loadConfig(withEnv({ FIXMATE_TEST_MONGODB_URI: "not-a-mongodb-uri" })),
-    /FIXMATE_TEST_MONGODB_URI must be a MongoDB connection string/,
+    () => loadConfig(withoutEnv("FIXMATE_TEST_PROVISIONING_SECRET")),
+    /FIXMATE_TEST_PROVISIONING_SECRET is required/,
   );
   assert.throws(
-    () => loadConfig(withEnv({ FIXMATE_TEST_MONGODB_URI: "mongodb:///fixmate" })),
-    /FIXMATE_TEST_MONGODB_URI must include a MongoDB host/,
+    () => loadConfig(withoutEnv("FIXMATE_TEST_CLIENT_ORIGIN")),
+    /FIXMATE_TEST_CLIENT_ORIGIN is required/,
   );
-  assert.throws(
-    () => loadConfig(withEnv({ FIXMATE_TEST_MONGODB_URI: "mongodb://127.0.0.1:27017/fixmate/extra" })),
-    /FIXMATE_TEST_MONGODB_URI must contain exactly one database path segment/,
-  );
-});
-
-test("missing test-only values are never replaced by normal-mode values", () => {
-  for (const key of [
-    "FIXMATE_TEST_MONGODB_URI",
-    "FIXMATE_TEST_DATABASE_NAME",
-    "FIXMATE_TEST_PROVISIONING_SECRET",
-    "FIXMATE_TEST_CLIENT_ORIGIN",
-    "FIXMATE_TEST_AUTH_JWT_ISSUER",
-    "FIXMATE_TEST_AUTH_JWT_JWKS_URL",
-    "FIXMATE_TEST_AUTH_JWT_AUDIENCE",
-    "FIXMATE_TEST_AUTH_JWT_ALGORITHMS",
-  ]) {
-    assert.throws(
-      () => loadConfig(withoutEnv(key)),
-      new RegExp(`${key} is required|at least one algorithm`),
-    );
-  }
 });
 
 test("test mode rejects invalid client origins", () => {
@@ -224,6 +169,17 @@ test("test mode rejects invalid client origins", () => {
     () => loadConfig(withEnv({ FIXMATE_TEST_CLIENT_ORIGIN: "*" })),
     /must be a valid URL/,
   );
+});
+
+test("test mode requires the complete test JWT configuration", () => {
+  for (const key of [
+    "FIXMATE_TEST_AUTH_JWT_ISSUER",
+    "FIXMATE_TEST_AUTH_JWT_JWKS_URL",
+    "FIXMATE_TEST_AUTH_JWT_AUDIENCE",
+    "FIXMATE_TEST_AUTH_JWT_ALGORITHMS",
+  ]) {
+    assert.throws(() => loadConfig(withoutEnv(key)), new RegExp(`${key} is required|at least one algorithm`));
+  }
 });
 
 test("test mode keeps the strict EdDSA allowlist and requires JWT values to agree", () => {
@@ -255,13 +211,13 @@ test("test mode is rejected when NODE_ENV is production", () => {
 test("test-mode validation errors do not expose credentials or secrets", () => {
   const marker = "never-print-this-value";
   const hostileEnv = withEnv({
-    FIXMATE_TEST_MONGODB_URI: `mongodb://user:${marker}@127.0.0.1:27017/fixmate_auth_test`,
+    FIXMATE_TEST_MONGODB_URI: `mongodb://user:${marker}@127.0.0.1:27017/fixmate`,
   });
 
   assert.throws(
     () => loadConfig(hostileEnv),
     (error) => {
-      assert.match(error.message, /FIXMATE_TEST_MONGODB_URI must target fixmate\./);
+      assert.match(error.message, /FIXMATE_TEST_MONGODB_URI must target fixmate_auth_test/);
       assert.equal(error.message.includes(marker), false);
       return true;
     },

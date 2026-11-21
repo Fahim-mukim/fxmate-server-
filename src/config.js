@@ -1,7 +1,7 @@
 const DEFAULT_PORT = 5000;
 const DEFAULT_DEVELOPMENT_ORIGIN = "http://localhost:3000";
 const DEFAULT_DATABASE_NAME = "fixmate";
-export const TEST_DATABASE_NAME = "fixmate";
+export const TEST_DATABASE_NAME = "fixmate_auth_test";
 const MONGODB_URI_PREFIXES = ["mongodb://", "mongodb+srv://"];
 const SUPPORTED_JWT_ALGORITHMS = new Set(["EdDSA"]);
 const TEST_JWKS_PATH = "/api/auth/jwks";
