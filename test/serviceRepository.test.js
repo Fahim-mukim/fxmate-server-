@@ -108,8 +108,10 @@ test("ensureIndexes creates justified indexes once without destructive operation
     "services_public_category_price_asc",
     "services_public_category_price_desc",
     "services_technician_email",
+    "services_technician_id_newest",
+    "services_moderation_status_newest",
   ]);
-  assert.equal(collection.calls.createIndex.length, 4);
+  assert.equal(collection.calls.createIndex.length, 6);
   assert.equal(
     collection.calls.createIndex.some((call) => call.options.unique === true),
     false,
@@ -117,8 +119,8 @@ test("ensureIndexes creates justified indexes once without destructive operation
 
   const second = await repository.ensureIndexes();
   assert.deepEqual(second.created, []);
-  assert.equal(second.existingCount, 4);
-  assert.equal(collection.calls.createIndex.length, 4);
+  assert.equal(second.existingCount, 6);
+  assert.equal(collection.calls.createIndex.length, 6);
   assert.equal(collection.calls.indexes, 2);
   assert.equal(collection.calls.drop, 0);
   assert.equal(collection.calls.deleteMany, 0);
@@ -144,7 +146,7 @@ test("ensureIndexes skips an equivalent index with another name", async () => {
 
   await repository.ensureIndexes();
 
-  assert.equal(collection.calls.createIndex.length, 3);
+  assert.equal(collection.calls.createIndex.length, 5);
   assert.equal(collection.calls.drop, 0);
 });
 

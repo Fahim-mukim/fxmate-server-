@@ -19,6 +19,12 @@ export const APPROVAL_STATUSES = Object.freeze([
   APPROVAL_STATUS.REJECTED,
 ]);
 
+// Server-owned ownership/reference fields. technicianId uses the application
+// users _id from req.user; bookings.serviceId is the safe deletion-reference
+// key consistent with the documented relationship naming.
+export const SERVICE_OWNER_FIELD = "technicianId";
+export const BOOKING_SERVICE_FIELD = "serviceId";
+
 export const SERVICE_CATEGORIES = Object.freeze([
   "Smartphone",
   "Laptop & PC",
@@ -57,6 +63,13 @@ export const PUBLIC_SERVICE_PROJECTION = Object.freeze({
   createdAt: 1,
 });
 
+// Technicians and admins need the server-owned owner reference for ownership
+// review; no internal Mongo or auth fields are added to this projection.
+export const SERVICE_MANAGEMENT_PROJECTION = Object.freeze({
+  ...PUBLIC_SERVICE_PROJECTION,
+  [SERVICE_OWNER_FIELD]: 1,
+});
+
 export const SERVICE_INDEXES = Object.freeze([
   Object.freeze({
     name: "services_public_category_newest",
@@ -91,6 +104,14 @@ export const SERVICE_INDEXES = Object.freeze([
   Object.freeze({
     name: "services_technician_email",
     keys: Object.freeze({ technicianEmail: 1 }),
+  }),
+  Object.freeze({
+    name: "services_technician_id_newest",
+    keys: Object.freeze({ technicianId: 1, createdAt: -1, _id: -1 }),
+  }),
+  Object.freeze({
+    name: "services_moderation_status_newest",
+    keys: Object.freeze({ approvalStatus: 1, createdAt: -1, _id: -1 }),
   }),
 ]);
 

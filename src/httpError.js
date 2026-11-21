@@ -11,6 +11,14 @@ export function badRequest(message) {
   return new HttpError(400, "INVALID_QUERY", message);
 }
 
+export function invalidRequest(message) {
+  return new HttpError(400, "VALIDATION_FAILED", message);
+}
+
+export function conflict(message = "Resource is in use.") {
+  return new HttpError(409, "CONFLICT", message);
+}
+
 export function notFound(message = "Service not found.") {
   return new HttpError(404, "NOT_FOUND", message);
 }

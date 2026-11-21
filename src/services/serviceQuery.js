@@ -84,7 +84,7 @@ function parsePrice(value, name) {
   return number;
 }
 
-function parsePositiveInteger(value, name, max) {
+export function parsePositiveInteger(value, name, max) {
   if (value === undefined) return null;
 
   const text = requireString(value, name).trim();

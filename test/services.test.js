@@ -455,14 +455,24 @@ test("public service endpoints return a safe 503 when the database is unavailabl
   });
 });
 
-test("public services routes do not expose write methods", async () => {
+test("unauthenticated service write attempts are rejected", async () => {
   const app = createApp({ config: testConfig(), database: testDatabase() });
 
   await withServer(app, async (baseUrl) => {
-    for (const method of ["POST", "PATCH", "DELETE"]) {
-      const response = await fetch(`${baseUrl}/api/services`, { method });
-      assert.equal(response.status, 404, method);
-      assert.equal((await response.json()).error.code, "NOT_FOUND");
+    const attempts = [
+      { method: "POST", path: "/api/services" },
+      { method: "PATCH", path: `/api/services/${SERVICE_IDS.approvedNewest}` },
+      { method: "DELETE", path: `/api/services/${SERVICE_IDS.approvedNewest}` },
+    ];
+
+    for (const attempt of attempts) {
+      const response = await fetch(`${baseUrl}${attempt.path}`, {
+        method: attempt.method,
+        headers: { "Content-Type": "application/json" },
+        body: attempt.method === "POST" ? "{}" : undefined,
+      });
+      assert.equal(response.status, 401, attempt.method);
+      assert.equal((await response.json()).error.code, "AUTHENTICATION_REQUIRED");
     }
   });
 });

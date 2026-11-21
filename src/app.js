@@ -89,7 +89,10 @@ export function createApp({
     users: userRepository,
     provisioningSecret: config.provisioningSecret,
   }));
-  app.use("/api/services", createServicesRouter({ repository: serviceRepository }));
+  app.use("/api/services", createServicesRouter({
+    repository: serviceRepository,
+    middleware,
+  }));
 
   app.use(notFoundHandler);
   app.use(createErrorHandler({
