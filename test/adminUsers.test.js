@@ -4,14 +4,18 @@ import assert from "node:assert/strict";
 import { ObjectId } from "mongodb";
 
 import { createApp } from "../src/app.js";
+import { createAuthMiddleware } from "../src/auth/middleware.js";
 import { HttpError, notFound, serviceUnavailable } from "../src/httpError.js";
 import {
   isValidAdminUserId,
   parseAdminUserListQuery,
+  parseAdminUserRoleUpdateBody,
   userSearchPattern,
 } from "../src/users/adminUserQuery.js";
 import {
+  APP_ROLES,
   USER_COLLECTION,
+  USER_PROJECTION,
   toAdminUserData,
 } from "../src/users/userModel.js";
 import { createUserRepository } from "../src/users/userRepository.js";
@@ -81,8 +85,10 @@ function usersFor({
   detail = null,
   listError = null,
   detailError = null,
+  roleError = null,
+  roleResult,
 } = {}) {
-  const calls = { list: [], detail: [], writes: 0 };
+  const calls = { list: [], detail: [], role: [], writes: 0 };
 
   return {
     calls,
@@ -110,10 +116,24 @@ function usersFor({
       if (!detail) throw notFound("User not found.");
       return detail;
     },
+    async updateAdminUserRole(id, role) {
+      calls.role.push({ id, role });
+      if (roleError) throw roleError;
+      if (roleResult === null) throw notFound("User not found.");
+      return roleResult ?? toAdminUserData(canonicalUser({
+        _id: new ObjectId(id),
+        role,
+      }));
+    },
   };
 }
 
-function appFor({ user = canonicalUser(), users = usersFor(), config } = {}) {
+function appFor({
+  user = canonicalUser(),
+  users = usersFor(),
+  config,
+  authMiddleware,
+} = {}) {
   return createApp({
     config: config ?? testConfig(),
     database: {
@@ -121,7 +141,7 @@ function appFor({ user = canonicalUser(), users = usersFor(), config } = {}) {
       getDb: () => ({ collection: () => ({ findOne: async () => null }) }),
     },
     users,
-    authMiddleware: middlewareFor(user),
+    authMiddleware: authMiddleware ?? middlewareFor(user),
   });
 }
 
@@ -138,16 +158,28 @@ async function withServer(app, callback) {
   }
 }
 
-async function request(baseUrl, method, path = "") {
+async function request(baseUrl, method, path = "", body) {
+  const headers = { Authorization: "Bearer signed-token" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+
   const response = await fetch(`${baseUrl}/api/admin/users${path}`, {
     method,
-    headers: { Authorization: "Bearer signed-token" },
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   return { response, payload: await response.json().catch(() => null) };
 }
 
 function fakeListCollection({ documents = [], total = 0 } = {}) {
-  const calls = { find: [], count: [], sort: [], skip: [], limit: [], write: 0 };
+  const calls = {
+    find: [],
+    count: [],
+    sort: [],
+    skip: [],
+    limit: [],
+    write: 0,
+    roleWrites: [],
+  };
 
   return {
     calls,
@@ -177,6 +209,14 @@ function fakeListCollection({ documents = [], total = 0 } = {}) {
     },
     async findOne() {
       return null;
+    },
+    async findOneAndUpdate(filter, update, options) {
+      calls.roleWrites.push({ filter, update, options });
+      const id = filter._id instanceof ObjectId
+        ? filter._id.toHexString()
+        : String(filter._id);
+      const found = documents.find((document) => String(document._id) === id);
+      return found ? { ...found, ...update.$set } : null;
     },
     async updateOne() {
       calls.write += 1;
@@ -399,7 +439,7 @@ test("customer, technician, and unauthenticated requests cannot read admin users
   });
 });
 
-test("admin user routes reject invalid ids and expose no mutation routes", async () => {
+test("admin user routes reject invalid ids and expose no unintended mutation routes", async () => {
   const app = appFor();
 
   await withServer(app, async (baseUrl) => {
@@ -429,4 +469,294 @@ test("admin user routes report repository outages consistently", async () => {
     assert.equal(response.status, 503);
     assert.equal(payload.error.code, "SERVICE_UNAVAILABLE");
   });
+});
+
+test("admin role update body accepts exactly one allowlisted role", () => {
+  assert.deepEqual(parseAdminUserRoleUpdateBody({ role: "technician" }), {
+    role: "technician",
+  });
+
+  const invalid = [
+    undefined,
+    null,
+    [],
+    {},
+    { role: "owner" },
+    { role: 1 },
+    { role: null },
+    { role: " admin " },
+    { role: "admin", userId: "spoof" },
+    { role: "admin", role2: "customer" },
+  ];
+  for (const body of invalid) {
+    assert.throws(
+      () => parseAdminUserRoleUpdateBody(body),
+      (error) => error.status === 400 && error.code === "VALIDATION_FAILED",
+    );
+  }
+});
+
+test("admin user repository updates every allowed role with a safe projection", async () => {
+  for (const role of APP_ROLES) {
+    const targetId = new ObjectId();
+    const collection = fakeListCollection({
+      documents: [canonicalUser({ _id: targetId, role: "customer", name: "Target" })],
+    });
+    const repository = repositoryFor(collection);
+
+    const result = await repository.updateAdminUserRole(targetId.toHexString(), role);
+
+    assert.equal(result.id, targetId.toHexString());
+    assert.equal(result.role, role);
+    assert.equal(result.name, "Target");
+    assert.equal(result.passwordHash, undefined);
+    assert.equal(result.sessionToken, undefined);
+    assert.equal(result.verificationToken, undefined);
+    assert.equal(result.authUserId, undefined);
+    assert.equal(collection.calls.roleWrites.length, 1);
+    assert.deepEqual(collection.calls.roleWrites[0].update, { $set: { role } });
+    assert.equal(collection.calls.roleWrites[0].options.returnDocument, "after");
+    assert.deepEqual(
+      collection.calls.roleWrites[0].options.projection,
+      { ...USER_PROJECTION },
+    );
+  }
+});
+
+test("admin user repository fails closed for invalid role targets and outages", async () => {
+  const repository = repositoryFor(fakeListCollection());
+
+  await assert.rejects(
+    () => repository.updateAdminUserRole("not-an-id", "customer"),
+    (error) => error.status === 404 && error.code === "NOT_FOUND",
+  );
+  await assert.rejects(
+    () => repository.updateAdminUserRole(USER_ID.toHexString(), "owner"),
+    (error) => error.status === 400 && error.code === "VALIDATION_FAILED",
+  );
+
+  const missing = repositoryFor(fakeListCollection({ documents: [] }));
+  await assert.rejects(
+    () => missing.updateAdminUserRole(new ObjectId().toHexString(), "technician"),
+    (error) => error.status === 404 && error.code === "NOT_FOUND",
+  );
+
+  const failingCollection = fakeListCollection({
+    documents: [canonicalUser()],
+  });
+  failingCollection.findOneAndUpdate = async () => {
+    throw new Error("database offline");
+  };
+  const outage = repositoryFor(failingCollection);
+  await assert.rejects(
+    () => outage.updateAdminUserRole(USER_ID.toHexString(), "admin"),
+    (error) => error.status === 503 && error.code === "SERVICE_UNAVAILABLE",
+  );
+});
+
+test("authenticated Admin can update every allowed role through the safe projection", async () => {
+  for (const role of APP_ROLES) {
+    const targetId = new ObjectId();
+    const users = usersFor({
+      roleResult: toAdminUserData(canonicalUser({ _id: targetId, role })),
+    });
+    const app = appFor({ users });
+
+    await withServer(app, async (baseUrl) => {
+      const { response, payload } = await request(
+        baseUrl,
+        "PATCH",
+        `/${targetId.toHexString()}/role`,
+        { role },
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(payload.success, true);
+      assert.equal(payload.data.id, targetId.toHexString());
+      assert.equal(payload.data.role, role);
+      assert.equal(payload.data.email, "admin@example.com");
+      assert.equal(payload.data.passwordHash, undefined);
+      assert.equal(payload.data.sessionToken, undefined);
+      assert.equal(payload.data.verificationToken, undefined);
+      assert.equal(payload.data.authUserId, undefined);
+      assert.deepEqual(users.calls.role, [{ id: targetId.toHexString(), role }]);
+    });
+  }
+});
+
+test("role update rejects unauthenticated, non-admin, and self changes", async () => {
+  const targetId = new ObjectId();
+  const unauthenticated = appFor({ user: null });
+  const rejectedAuth = appFor({
+    user: new HttpError(401, "AUTHENTICATION_REQUIRED", "Authentication is required."),
+  });
+  const customer = appFor({ user: canonicalUser({ role: "customer" }) });
+  const technician = appFor({ user: canonicalUser({ role: "technician" }) });
+  const selfUsers = usersFor();
+  const self = appFor({ users: selfUsers });
+
+  await withServer(unauthenticated, async (baseUrl) => {
+    const { response, payload } = await request(
+      baseUrl,
+      "PATCH",
+      `/${targetId.toHexString()}/role`,
+      { role: "technician" },
+    );
+    assert.equal(response.status, 401);
+    assert.equal(payload.error.code, "AUTHENTICATION_REQUIRED");
+  });
+  await withServer(rejectedAuth, async (baseUrl) => {
+    const { response, payload } = await request(
+      baseUrl,
+      "PATCH",
+      `/${targetId.toHexString()}/role`,
+      { role: "technician" },
+    );
+    assert.equal(response.status, 401);
+    assert.equal(payload.error.code, "AUTHENTICATION_REQUIRED");
+  });
+  for (const app of [customer, technician]) {
+    await withServer(app, async (baseUrl) => {
+      const { response, payload } = await request(
+        baseUrl,
+        "PATCH",
+        `/${targetId.toHexString()}/role`,
+        { role: "technician" },
+      );
+      assert.equal(response.status, 403);
+      assert.equal(payload.error.code, "FORBIDDEN");
+    });
+  }
+  await withServer(self, async (baseUrl) => {
+    const { response, payload } = await request(
+      baseUrl,
+      "PATCH",
+      `/${USER_ID.toHexString()}/role`,
+      { role: "customer" },
+    );
+    assert.equal(response.status, 403);
+    assert.equal(payload.error.code, "SELF_ROLE_CHANGE_FORBIDDEN");
+    assert.equal(selfUsers.calls.role.length, 0);
+  });
+});
+
+test("role update validates target id and body before writing", async () => {
+  const users = usersFor();
+  const app = appFor({ users });
+  const selfPath = `/${USER_ID.toHexString()}/role`;
+
+  await withServer(app, async (baseUrl) => {
+    const invalid = [
+      { path: "/not-an-id/role", body: { role: "customer" } },
+      { path: selfPath, body: { role: "owner" } },
+      { path: selfPath, body: {} },
+      { path: selfPath, body: { role: "admin", userId: "spoof" } },
+      { path: selfPath },
+    ];
+    for (const input of invalid) {
+      const { response, payload } = await request(
+        baseUrl,
+        "PATCH",
+        input.path,
+        input.body,
+      );
+      assert.equal(response.status, 400, JSON.stringify(input));
+      assert.equal(payload.error.code, "VALIDATION_FAILED");
+    }
+    assert.equal(users.calls.role.length, 0);
+  });
+
+  const missingTargetId = new ObjectId();
+  const missing = appFor({ users: usersFor({ roleResult: null }) });
+  await withServer(missing, async (baseUrl) => {
+    const { response, payload } = await request(
+      baseUrl,
+      "PATCH",
+      `/${missingTargetId.toHexString()}/role`,
+      { role: "customer" },
+    );
+    assert.equal(response.status, 404);
+    assert.equal(payload.error.code, "NOT_FOUND");
+  });
+});
+
+test("role update reports repository outages consistently", async () => {
+  const users = usersFor({ roleError: serviceUnavailable() });
+  const app = appFor({ users });
+  const targetId = new ObjectId();
+
+  await withServer(app, async (baseUrl) => {
+    const { response, payload } = await request(
+      baseUrl,
+      "PATCH",
+      `/${targetId.toHexString()}/role`,
+      { role: "technician" },
+    );
+    assert.equal(response.status, 503);
+    assert.equal(payload.error.code, "SERVICE_UNAVAILABLE");
+  });
+});
+
+test("role update authorization uses DB-backed Better Auth identity and role", async () => {
+  function dbBackedMiddleware(dbUser, jwtRole) {
+    return createAuthMiddleware({
+      verifier: {
+        async verify() {
+          return { sub: USER_ID.toHexString(), role: jwtRole };
+        },
+      },
+      users: {
+        async findByAuthUserId() {
+          return dbUser;
+        },
+      },
+    });
+  }
+
+  const targetId = new ObjectId();
+  const adminUsers = usersFor({
+    roleResult: toAdminUserData(canonicalUser({ _id: targetId, role: "technician" })),
+  });
+  const nonAdminUsers = usersFor();
+
+  await withServer(
+    appFor({
+      users: adminUsers,
+      authMiddleware: dbBackedMiddleware(canonicalUser(), "customer"),
+    }),
+    async (baseUrl) => {
+      const { response, payload } = await request(
+        baseUrl,
+        "PATCH",
+        `/${targetId.toHexString()}/role`,
+        { role: "technician" },
+      );
+      assert.equal(response.status, 200);
+      assert.equal(payload.data.role, "technician");
+      assert.deepEqual(adminUsers.calls.role, [
+        { id: targetId.toHexString(), role: "technician" },
+      ]);
+    },
+  );
+
+  await withServer(
+    appFor({
+      users: nonAdminUsers,
+      authMiddleware: dbBackedMiddleware(
+        canonicalUser({ role: "customer" }),
+        "admin",
+      ),
+    }),
+    async (baseUrl) => {
+      const { response, payload } = await request(
+        baseUrl,
+        "PATCH",
+        `/${targetId.toHexString()}/role`,
+        { role: "admin" },
+      );
+      assert.equal(response.status, 403);
+      assert.equal(payload.error.code, "FORBIDDEN");
+      assert.equal(nonAdminUsers.calls.role.length, 0);
+    },
+  );
 });

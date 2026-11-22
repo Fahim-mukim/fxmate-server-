@@ -1,9 +1,15 @@
 import { ObjectId } from "mongodb";
-import { HttpError, notFound, serviceUnavailable } from "../httpError.js";
+import {
+  HttpError,
+  invalidRequest,
+  notFound,
+  serviceUnavailable,
+} from "../httpError.js";
 import { userSearchPattern } from "./adminUserQuery.js";
 import {
   USER_COLLECTION,
   USER_PROJECTION,
+  isApplicationRole,
   toAdminUserData,
 } from "./userModel.js";
 
@@ -142,10 +148,42 @@ export function createUserRepository({
     }
   }
 
+  async function updateAdminUserRole(id, role) {
+    const filter = canonicalIdFilter(id);
+    if (!filter || !OBJECT_ID_PATTERN.test(String(id).trim())) {
+      throw notFound("User not found.");
+    }
+    if (!isApplicationRole(role)) {
+      throw invalidRequest("role is not supported.");
+    }
+
+    try {
+      const collection = getCollection();
+      if (typeof collection.findOneAndUpdate !== "function") {
+        throw serviceUnavailable();
+      }
+
+      const document = await collection.findOneAndUpdate(
+        filter,
+        { $set: { role } },
+        {
+          returnDocument: "after",
+          projection: { ...USER_PROJECTION },
+        },
+      );
+      if (!document) throw notFound("User not found.");
+      return toAdminUserData(document);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw serviceUnavailable();
+    }
+  }
+
   return Object.freeze({
     findByAuthUserId,
     updateProfile,
     listAdminUsers,
     findAdminUserById,
+    updateAdminUserRole,
   });
 }

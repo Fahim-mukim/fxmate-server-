@@ -1,4 +1,4 @@
-import { badRequest } from "../httpError.js";
+import { badRequest, invalidRequest } from "../httpError.js";
 import {
   DEFAULT_LIMIT,
   DEFAULT_PAGE,
@@ -17,8 +17,10 @@ export const ADMIN_USER_QUERY_KEYS = Object.freeze([
   "limit",
 ]);
 export const MAX_ADMIN_USER_SEARCH_LENGTH = 100;
+export const ADMIN_USER_ROLE_UPDATE_FIELDS = Object.freeze(["role"]);
 
 const ALLOWED_QUERY_KEYS = new Set(ADMIN_USER_QUERY_KEYS);
+const ALLOWED_ROLE_UPDATE_FIELDS = new Set(ADMIN_USER_ROLE_UPDATE_FIELDS);
 
 function requireString(value, name) {
   if (typeof value !== "string") {
@@ -76,4 +78,22 @@ export function userSearchPattern(search) {
 
 export function isValidAdminUserId(value) {
   return typeof value === "string" && isValidObjectId(value);
+}
+
+export function parseAdminUserRoleUpdateBody(rawBody) {
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    throw invalidRequest("Request body must be a JSON object.");
+  }
+
+  const keys = Object.keys(rawBody);
+  if (keys.length !== 1 || !ALLOWED_ROLE_UPDATE_FIELDS.has(keys[0])) {
+    throw invalidRequest("Only role may be updated.");
+  }
+
+  const role = rawBody.role;
+  if (typeof role !== "string" || !APP_ROLES.includes(role)) {
+    throw invalidRequest("role is not supported.");
+  }
+
+  return Object.freeze({ role });
 }
