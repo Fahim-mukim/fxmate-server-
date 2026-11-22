@@ -1,6 +1,7 @@
 import express from "express";
 import { isValidObjectId } from "../services/serviceModel.js";
 import {
+  ALLOWED_ADMIN_LIST_FIELDS,
   getCustomerIdentity,
   getTechnicianOwnerId,
   parseBookingCreateInput,
@@ -104,7 +105,9 @@ export function createBookingsRouter({ repository, middleware } = {}) {
   }));
 
   router.get("/admin", ...admin, asyncRoute(async (req, res) => {
-    const criteria = parseBookingListQuery(req.query);
+    const criteria = parseBookingListQuery(req.query, {
+      allowedFields: ALLOWED_ADMIN_LIST_FIELDS,
+    });
     const data = await repository.listForAdmin(criteria);
     return res.status(200).json({ success: true, data });
   }));

@@ -33,6 +33,7 @@ import {
   normalizeBookingId,
 } from "./bookingModel.js";
 import { BOOKING_PAYMENT_STATUS } from "../payments/paymentModel.js";
+import { bookingSearchPattern } from "./bookingInput.js";
 
 const SERVICE_SNAPSHOT_PROJECTION = Object.freeze({
   _id: 1,
@@ -362,7 +363,20 @@ export function createBookingRepository({
   }
 
   function listAdminFilter(criteria) {
-    return criteria.status ? { status: criteria.status } : {};
+    const filter = {};
+    if (criteria.status) filter.status = criteria.status;
+    if (criteria.paymentStatus) filter.paymentStatus = criteria.paymentStatus;
+    const pattern = bookingSearchPattern(criteria.search);
+    if (pattern) {
+      filter.$or = [
+        { serviceTitle: pattern },
+        { customerName: pattern },
+        { customerEmail: pattern },
+        { technicianName: pattern },
+        { technicianEmail: pattern },
+      ];
+    }
+    return filter;
   }
 
   async function findByIdAndOwner(id, ownerField, ownerId, ownerLabel) {

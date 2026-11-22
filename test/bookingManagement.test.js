@@ -116,7 +116,15 @@ function testAuthMiddleware() {
 
 function matches(document, filter = {}) {
   return Object.entries(filter).every(([field, expected]) => {
+    if (field === "$or" && Array.isArray(expected)) {
+      return expected.some((candidate) => matches(document, candidate));
+    }
+
     const actual = document[field];
+    if (expected instanceof RegExp) {
+      return expected.test(String(actual ?? ""));
+    }
+
     if (
       expected &&
       typeof expected === "object" &&
@@ -983,6 +991,7 @@ test("admin can inspect and filter all bookings but cannot override transitions"
     assert.equal(denied.response.status, 403);
 
     const list = await request(baseUrl, "/api/bookings/admin", { token: TOKENS.admin });
+    if (list.response.status !== 200) console.error("DEBUG_ADMIN_LIST2", JSON.stringify(list.body));
     assert.equal(list.response.status, 200);
     assert.equal(list.body.data.total, 3);
     assert.ok(list.body.data.items.every((item) => item.activeBookingKey === undefined));
@@ -994,11 +1003,31 @@ test("admin can inspect and filter all bookings but cannot override transitions"
     assert.equal(filtered.body.data.total, 1);
     assert.equal(filtered.body.data.items[0].status, "completed");
 
+    const paidFilter = await request(baseUrl, "/api/bookings/admin?paymentStatus=paid", {
+      token: TOKENS.admin,
+    });
+    assert.equal(paidFilter.response.status, 200);
+    assert.equal(paidFilter.body.data.total, 0);
+
+    const searchFilter = await request(baseUrl, "/api/bookings/admin?search=customer", {
+      token: TOKENS.admin,
+    });
+    assert.equal(searchFilter.response.status, 200);
+    assert.ok(searchFilter.body.data.total >= 1);
+
     const invalidStatus = await request(baseUrl, "/api/bookings/admin?status=unknown", {
       token: TOKENS.admin,
     });
     assert.equal(invalidStatus.response.status, 400);
     assert.equal(invalidStatus.body.error.code, "INVALID_QUERY");
+
+    const invalidPaymentStatus = await request(
+      baseUrl,
+      "/api/bookings/admin?paymentStatus=pending",
+      { token: TOKENS.admin },
+    );
+    assert.equal(invalidPaymentStatus.response.status, 400);
+    assert.equal(invalidPaymentStatus.body.error.code, "INVALID_QUERY");
 
     const override = await request(baseUrl, `/api/bookings/${IDS.bookingRequested}/status`, {
       method: "PATCH",
@@ -1006,6 +1035,36 @@ test("admin can inspect and filter all bookings but cannot override transitions"
       body: { status: "accepted" },
     });
     assert.equal(override.response.status, 403);
+  });
+});
+
+test("admin booking list query accepts paymentStatus/search but customer and technician queries reject them", async () => {
+  const { app } = createTestApp({
+    bookings: [seedBooking({ _id: new ObjectId(IDS.bookingRequested) })],
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const adminPayment = await request(baseUrl, "/api/bookings/admin?paymentStatus=unpaid", {
+      token: TOKENS.admin,
+    });
+    assert.equal(adminPayment.response.status, 200);
+
+    const adminSearch = await request(baseUrl, "/api/bookings/admin?search=fixmate", {
+      token: TOKENS.admin,
+    });
+    assert.equal(adminSearch.response.status, 200);
+
+    for (const path of [
+      "/api/bookings/mine?paymentStatus=paid",
+      "/api/bookings/mine?search=fixmate",
+      "/api/bookings/technician?paymentStatus=paid",
+      "/api/bookings/technician?search=fixmate",
+    ]) {
+      const token = path.includes("/mine") ? TOKENS.customer : TOKENS.technician;
+      const result = await request(baseUrl, path, { token });
+      assert.equal(result.response.status, 400, path);
+      assert.equal(result.body.error.code, "INVALID_QUERY", path);
+    }
   });
 });
 

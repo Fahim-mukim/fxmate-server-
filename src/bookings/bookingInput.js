@@ -1,4 +1,5 @@
 import { badRequest, invalidRequest } from "../httpError.js";
+import { BOOKING_PAYMENT_STATUS } from "../payments/paymentModel.js";
 import {
   BOOKING_STATUSES,
   TECHNICIAN_NEXT_STATUSES,
@@ -10,6 +11,7 @@ import {
   DEFAULT_PAGE,
   MAX_LIMIT,
   MAX_PAGE,
+  escapeRegex,
   parsePositiveInteger,
 } from "../services/serviceQuery.js";
 import { isValidObjectId } from "../services/serviceModel.js";
@@ -31,6 +33,9 @@ const CREATE_FIELDS = Object.freeze([
 const ALLOWED_CREATE_FIELDS = new Set(CREATE_FIELDS);
 const ALLOWED_TRANSITION_FIELDS = new Set(["status", "finalAmount"]);
 const ALLOWED_LIST_FIELDS = new Set(["status", "page", "limit"]);
+const ALLOWED_ADMIN_LIST_FIELDS = new Set(["status", "paymentStatus", "search", "page", "limit"]);
+const BOOKING_PAYMENT_STATUSES = new Set(Object.values(BOOKING_PAYMENT_STATUS));
+const MAX_BOOKING_SEARCH_LENGTH = 100;
 
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
@@ -211,23 +216,63 @@ function parseStatus(value) {
   return text;
 }
 
-export function parseBookingListQuery(rawQuery) {
+function parsePaymentStatus(value) {
+  if (value === undefined || value === "") return null;
+
+  let text;
+  try {
+    text = cleanString(value, "paymentStatus", 1, 20);
+  } catch {
+    throw badRequest("paymentStatus is not supported.");
+  }
+  if (!BOOKING_PAYMENT_STATUSES.has(text)) {
+    throw badRequest("paymentStatus is not supported.");
+  }
+  return text;
+}
+
+function parseSearch(value) {
+  if (value === undefined || value === "") return null;
+  if (typeof value !== "string") {
+    throw badRequest("search must be a string.");
+  }
+  const text = value.trim();
+  if (!text) return null;
+  if (text.length > MAX_BOOKING_SEARCH_LENGTH) {
+    throw badRequest(`search must be at most ${MAX_BOOKING_SEARCH_LENGTH} characters.`);
+  }
+  if (text.includes("\u0000")) {
+    throw badRequest("search contains an unsupported character.");
+  }
+  return text;
+}
+
+export function bookingSearchPattern(search) {
+  if (!search) return null;
+  return new RegExp(escapeRegex(search), "i");
+}
+
+export function parseBookingListQuery(rawQuery, { allowedFields = ALLOWED_LIST_FIELDS } = {}) {
   if (!rawQuery || typeof rawQuery !== "object" || Array.isArray(rawQuery)) {
     throw badRequest("Query must be an object.");
   }
 
   for (const key of Object.keys(rawQuery)) {
-    if (!ALLOWED_LIST_FIELDS.has(key)) {
+    if (!allowedFields.has(key)) {
       throw badRequest("Unsupported query parameter.");
     }
   }
 
   return {
     status: parseStatus(rawQuery.status),
+    paymentStatus: allowedFields.has("paymentStatus") ? parsePaymentStatus(rawQuery.paymentStatus) : null,
+    search: allowedFields.has("search") ? parseSearch(rawQuery.search) : null,
     page: parsePositiveInteger(rawQuery.page, "page", MAX_PAGE) ?? DEFAULT_PAGE,
     limit: parsePositiveInteger(rawQuery.limit, "limit", MAX_LIMIT) ?? DEFAULT_LIMIT,
   };
 }
+
+export { ALLOWED_ADMIN_LIST_FIELDS };
 
 function profileString(value, minimum, maximum) {
   if (typeof value !== "string") return null;
