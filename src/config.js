@@ -79,6 +79,11 @@ function parseConfiguredUrl(rawValue, variableName) {
   return normalized;
 }
 
+function parseOptionalServerSecret(rawValue) {
+  const trimmed = String(rawValue ?? "").trim();
+  return trimmed ? trimmed : null;
+}
+
 function parseJwtAlgorithms(rawValue, variableName = "AUTH_JWT_ALGORITHMS") {
   const algorithms = String(rawValue || "")
     .split(",")
@@ -130,6 +135,8 @@ function loadNormalConfig(env, nodeEnv, isProduction, port) {
     authJwtJwksUrl,
     authJwtAudience,
     authJwtAlgorithms,
+    // Server-only; never forwarded to the Client or included in public errors.
+    imgbbApiKey: parseOptionalServerSecret(env.IMGBB_API_KEY),
   });
 }
 

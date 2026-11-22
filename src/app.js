@@ -10,6 +10,8 @@ import { createServicesRouter } from "./services/routes.js";
 import { createServiceRepository } from "./services/serviceRepository.js";
 import { createProfileRouter } from "./users/profileRoutes.js";
 import { createUserRepository } from "./users/userRepository.js";
+import { createImgBbClient } from "./uploads/imgBbClient.js";
+import { createUploadRouter } from "./uploads/uploadRoutes.js";
 
 function createCorsOptions(config) {
   const allowedOrigins = new Set(config.clientOrigins);
@@ -39,6 +41,7 @@ export function createApp({
   users,
   tokenVerifier,
   authMiddleware,
+  imageHost,
 } = {}) {
   if (!config || !database) {
     throw new Error("createApp requires config and database.");
@@ -57,11 +60,21 @@ export function createApp({
     verifier,
     users: userRepository,
   });
+  const uploadHost = imageHost ?? createImgBbClient({ apiKey: config.imgbbApiKey });
 
   const app = express();
 
   app.disable("x-powered-by");
   app.use(cors(createCorsOptions(config)));
+
+  // Mounted before the global 1 MB JSON parser so uploads may use their own
+  // larger, explicit body limit without weakening other endpoints.
+  app.use("/api/uploads", createUploadRouter({
+    middleware,
+    users: userRepository,
+    imageHost: uploadHost,
+  }));
+
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/api/health", (req, res) => {
@@ -106,6 +119,7 @@ export function createApp({
   app.use(createErrorHandler({
     isProduction: config.isProduction,
     mongodbUri: config.mongodbUri,
+    secretValues: config.imgbbApiKey ? [config.imgbbApiKey] : [],
   }));
 
   return app;

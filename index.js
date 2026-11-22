@@ -16,10 +16,10 @@ const logger = {
 };
 
 function sensitiveValues(config) {
-  const values = [process.env.MONGODB_URI];
+  const values = [process.env.MONGODB_URI, process.env.IMGBB_API_KEY];
 
   if (config) {
-    values.push(config.mongodbUri);
+    values.push(config.mongodbUri, config.imgbbApiKey);
   }
 
   return values.filter((value) => typeof value === "string" && value.length > 0);

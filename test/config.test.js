@@ -108,6 +108,12 @@ test("rejects missing or unsupported JWT configuration", () => {
   );
 });
 
+test("reads the server-only ImgBB key without requiring or revealing a value", () => {
+  assert.equal(loadConfig(env()).imgbbApiKey, null);
+  assert.equal(loadConfig(env({ IMGBB_API_KEY: "   " })).imgbbApiKey, null);
+  assert.equal(loadConfig(env({ IMGBB_API_KEY: "  placeholder  " })).imgbbApiKey, "placeholder");
+});
+
 test("does not require removed dual-provisioning configuration", () => {
   const config = loadConfig(env({ FIXMATE_PROVISIONING_SECRET: "" }));
 
