@@ -4,9 +4,11 @@ import { normalizePaymentId } from "./paymentModel.js";
 import {
   parseAdminPaymentListQuery,
   parseCheckoutSessionId,
+  parseCustomerPaymentHistoryQuery,
 } from "./paymentQuery.js";
 import {
   toAdminPaymentListResponse,
+  toCustomerPaymentHistoryListResponse,
   toCustomerPaymentResponse,
 } from "./paymentReadModel.js";
 
@@ -20,6 +22,14 @@ export function createPaymentReadService({ payments, bookings } = {}) {
   }
   if (typeof payments?.listForAdmin !== "function") {
     throw new Error("createPaymentReadService requires payments.listForAdmin.");
+  }
+  if (typeof payments?.listForCustomer !== "function") {
+    throw new Error("createPaymentReadService requires payments.listForCustomer.");
+  }
+  if (typeof payments?.aggregatePaidRevenue !== "function") {
+    throw new Error(
+      "createPaymentReadService requires payments.aggregatePaidRevenue.",
+    );
   }
   if (typeof bookings?.findPaymentStatusForCustomer !== "function") {
     throw new Error(
@@ -51,11 +61,29 @@ export function createPaymentReadService({ payments, bookings } = {}) {
     return toCustomerPaymentResponse(payment, booking?.paymentStatus);
   }
 
-  async function listAdminPayments(rawQuery) {
-    const criteria = parseAdminPaymentListQuery(rawQuery);
-    const result = await payments.listForAdmin(criteria);
-    return toAdminPaymentListResponse(result);
+  async function listCustomerPayments(rawQuery, user) {
+    const criteria = parseCustomerPaymentHistoryQuery(rawQuery);
+    // Identity comes only from the DB-backed req.user set by JWT middleware.
+    const customerId = normalizePaymentId(
+      user?._id,
+      () => incompleteBookingProfile("customer"),
+    );
+    const result = await payments.listForCustomer({ ...criteria, customerId });
+    return toCustomerPaymentHistoryListResponse(result);
   }
 
-  return Object.freeze({ findCustomerPayment, listAdminPayments });
+  async function listAdminPayments(rawQuery) {
+    const criteria = parseAdminPaymentListQuery(rawQuery);
+    const [result, summary] = await Promise.all([
+      payments.listForAdmin(criteria),
+      payments.aggregatePaidRevenue(),
+    ]);
+    return toAdminPaymentListResponse({ ...result, summary });
+  }
+
+  return Object.freeze({
+    findCustomerPayment,
+    listCustomerPayments,
+    listAdminPayments,
+  });
 }

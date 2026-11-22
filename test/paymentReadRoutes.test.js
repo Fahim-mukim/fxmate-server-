@@ -154,14 +154,26 @@ async function get(baseUrl, path, token = "Bearer customer") {
   return { response, payload, text };
 }
 
-function fakeReadService({ customerData, customerError, adminData, adminError } = {}) {
-  const calls = { customer: [], admin: [] };
+function fakeReadService({
+  customerData,
+  customerError,
+  historyData,
+  historyError,
+  adminData,
+  adminError,
+} = {}) {
+  const calls = { customer: [], history: [], admin: [] };
   return {
     calls,
     async findCustomerPayment(sessionId, user) {
       calls.customer.push({ sessionId, userId: String(user._id) });
       if (customerError) throw customerError;
       return customerData;
+    },
+    async listCustomerPayments(query, user) {
+      calls.history.push({ query, userId: String(user._id) });
+      if (historyError) throw historyError;
+      return historyData;
     },
     async listAdminPayments(query) {
       calls.admin.push(query);
@@ -188,7 +200,7 @@ function paymentDocument(overrides = {}) {
     createdAt: new Date("2026-11-22T10:00:00.000Z"),
     updatedAt: new Date("2026-11-22T10:05:00.000Z"),
     stripeCheckoutSessionId: SESSION_ID,
-    stripePaymentIntentId: "pi_secret_marker",
+    stripePaymentIntentId: "pi_owner_123456789",
     stripeEventId: "evt_secret_marker",
     checkoutUrl: "https://checkout.stripe.com/cs_test_secret_marker",
     activePaymentKey: "active_secret_marker",
@@ -198,7 +210,7 @@ function paymentDocument(overrides = {}) {
 }
 
 function paymentRepoFor() {
-  const calls = { customer: [], admin: [], writes: 0 };
+  const calls = { customer: [], history: [], revenue: 0, admin: [], writes: 0 };
   const failWrite = () => {
     calls.writes += 1;
     throw new Error("read API attempted a write");
@@ -218,6 +230,20 @@ function paymentRepoFor() {
         });
       }
       return paymentDocument();
+    },
+    async listForCustomer(criteria) {
+      calls.history.push(criteria);
+      return {
+        items: [paymentDocument()],
+        page: criteria.page,
+        limit: criteria.limit,
+        total: 1,
+        totalPages: 1,
+      };
+    },
+    async aggregatePaidRevenue() {
+      calls.revenue += 1;
+      return { currency: "usd", paidCount: 7, totalRevenue: 668.5 };
     },
     async listForAdmin(criteria) {
       calls.admin.push(criteria);
@@ -419,6 +445,136 @@ test("customer read returns DB-authoritative paid and pending states with only s
   assert.equal(stripe.calls.length, 0);
 });
 
+test("customer history enforces authentication and Customer role first", async () => {
+  const service = fakeReadService({ historyData: { items: [], total: 0 } });
+  const { app, stripe } = appFor({ paymentReadService: service });
+
+  await withServer(app, async (baseUrl) => {
+    const missing = await get(baseUrl, "/api/payments/history", null);
+    assert.equal(missing.response.status, 401);
+    assert.equal(missing.payload.error.code, "AUTHENTICATION_REQUIRED");
+
+    const invalid = await get(baseUrl, "/api/payments/history", "Bearer invalid");
+    assert.equal(invalid.response.status, 401);
+    assert.equal(invalid.payload.error.code, "INVALID_TOKEN");
+
+    for (const token of ["Bearer technician", "Bearer admin"]) {
+      const forbidden = await get(baseUrl, "/api/payments/history", token);
+      assert.equal(forbidden.response.status, 403);
+      assert.equal(forbidden.payload.error.code, "FORBIDDEN");
+    }
+
+    const allowed = await get(baseUrl, "/api/payments/history");
+    assert.equal(allowed.response.status, 200);
+    assert.deepEqual({ ...service.calls.history[0].query }, {});
+  });
+  assert.equal(stripe.calls.length, 0);
+});
+
+test("customer history is ownership-scoped, paginated, and rejects browser overrides", async () => {
+  const { service, payments, bookings } = realReadService();
+  const { app, stripe } = appFor({ paymentReadService: service });
+
+  await withServer(app, async (baseUrl) => {
+    const result = await get(baseUrl, "/api/payments/history?page=2&limit=5");
+    assert.equal(result.response.status, 200);
+    assert.deepEqual(payments.calls.history[0], {
+      page: 2,
+      limit: 5,
+      customerId: new ObjectId(CUSTOMER_ID),
+    });
+    assert.equal(result.payload.data.page, 2);
+    assert.equal(result.payload.data.limit, 5);
+    assert.equal(result.payload.data.total, 1);
+    assert.deepEqual(result.payload.data.items[0], {
+      paymentId: PAYMENT_ID,
+      bookingId: BOOKING_ID,
+      serviceTitle: "Smartphone screen repair",
+      technicianName: "Technician One",
+      amount: 95.5,
+      currency: "usd",
+      status: PAYMENT_STATUS.PAID,
+      transactionId: "pi_owner_123456789",
+      paidAt: "2026-11-22T10:04:00.000Z",
+      createdAt: "2026-11-22T10:00:00.000Z",
+      updatedAt: "2026-11-22T10:05:00.000Z",
+    });
+    for (const marker of [
+      "secret_marker",
+      SESSION_ID,
+      "checkout.stripe.com",
+      "evt_",
+      "activePaymentKey",
+      "paidBookingKey",
+      "amountCents",
+    ]) {
+      assert.equal(result.text.includes(marker), false, marker);
+    }
+
+    for (const query of [
+      "?customerId=507f1f77bcf86cd7994390c2",
+      "?status=paid",
+      "?bookingId=507f1f77bcf86cd7994390b9",
+      "?sort=newest",
+      "?page=0",
+      "?limit=51",
+    ]) {
+      const rejected = await get(baseUrl, `/api/payments/history${query}`);
+      assert.equal(rejected.response.status, 400, query);
+      assert.equal(rejected.payload.error.code, "INVALID_QUERY");
+    }
+    assert.equal(payments.calls.history.length, 1);
+  });
+  assert.equal(payments.calls.writes, 0);
+  assert.equal(bookings.calls.writes, 0);
+  assert.equal(stripe.calls.length, 0);
+});
+
+test("customer history reports an unavailable transaction id when none was verified", async () => {
+  const payments = {
+    async findByCheckoutSessionIdForCustomer() { return null; },
+    async listForCustomer(criteria) {
+      return {
+        items: [paymentDocument({
+          status: PAYMENT_STATUS.PAID,
+          stripePaymentIntentId: undefined,
+        })],
+        page: criteria.page,
+        limit: criteria.limit,
+        total: 1,
+        totalPages: 1,
+      };
+    },
+    async listForAdmin() { throw new Error("not used"); },
+    async aggregatePaidRevenue() {
+      return { currency: "usd", paidCount: 0, totalRevenue: 0 };
+    },
+  };
+  const service = createPaymentReadService({
+    payments,
+    bookings: bookingRepoFor(),
+  });
+  const { app } = appFor({ paymentReadService: service });
+
+  await withServer(app, async (baseUrl) => {
+    const result = await get(baseUrl, "/api/payments/history");
+    assert.equal(result.response.status, 200);
+    assert.equal(result.payload.data.items[0].transactionId, null);
+    assert.equal(result.text.includes("cs_test_paid123456"), false);
+  });
+});
+
+test("customer history maps database outages to a safe 503", async () => {
+  const service = fakeReadService({ historyError: serviceUnavailable() });
+  const { app } = appFor({ paymentReadService: service });
+
+  await withServer(app, async (baseUrl) => {
+    const result = await get(baseUrl, "/api/payments/history");
+    assert.equal(result.response.status, 503);
+    assert.equal(result.payload.error.code, "SERVICE_UNAVAILABLE");
+  });
+});
+
 test("admin payment list enforces authentication and Admin role", async () => {
   const service = fakeReadService({ adminData: { items: [], total: 0 } });
   const { app } = appFor({ paymentReadService: service });
@@ -526,6 +682,11 @@ test("admin listing returns safe rows, total, page, page size, and empty results
     assert.equal(results.payload.data.page, 1);
     assert.equal(results.payload.data.limit, 10);
     assert.equal(results.payload.data.totalPages, 3);
+    assert.deepEqual(results.payload.data.summary, {
+      currency: "usd",
+      paidCount: 7,
+      totalRevenue: 668.5,
+    });
     const row = results.payload.data.items[0];
     assert.deepEqual(Object.keys(row).sort(), [
       "amount",
@@ -539,9 +700,11 @@ test("admin listing returns safe rows, total, page, page size, and empty results
       "serviceTitle",
       "status",
       "technicianName",
+      "transactionId",
       "updatedAt",
     ].sort());
     assert.equal(row.paymentId, PAYMENT_ID);
+    assert.equal(row.transactionId, "pi_owner_123456789");
     for (const marker of [
       "secret_marker",
       SESSION_ID,
@@ -564,10 +727,34 @@ test("admin listing returns safe rows, total, page, page size, and empty results
     assert.equal(empty.payload.data.total, 0);
     assert.equal(empty.payload.data.totalPages, 0);
     assert.equal(payments.calls.admin.length, 2);
+    assert.equal(payments.calls.revenue, 2);
   });
   assert.equal(payments.calls.writes, 0);
   assert.equal(bookings.calls.writes, 0);
   assert.equal(stripe.calls.length, 0);
+});
+
+test("admin revenue summary stays global under list filters", async () => {
+  const { service, payments } = realReadService();
+  const { app } = appFor({ paymentReadService: service });
+
+  await withServer(app, async (baseUrl) => {
+    const unfiltered = await get(baseUrl, "/api/payments/admin", "Bearer admin");
+    const filtered = await get(
+      baseUrl,
+      "/api/payments/admin?status=expired&search=nobody-matches-this",
+      "Bearer admin",
+    );
+
+    assert.equal(unfiltered.response.status, 200);
+    assert.equal(filtered.response.status, 200);
+    assert.equal(filtered.payload.data.total, 0);
+    assert.deepEqual(
+      filtered.payload.data.summary,
+      unfiltered.payload.data.summary,
+    );
+    assert.equal(payments.calls.revenue, 2);
+  });
 });
 
 test("admin payment endpoints expose no mutation routes", async () => {

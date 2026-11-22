@@ -21,11 +21,17 @@ export const ADMIN_PAYMENT_QUERY_KEYS = Object.freeze([
   "search",
   "sort",
 ]);
+export const CUSTOMER_PAYMENT_HISTORY_QUERY_KEYS = Object.freeze([
+  "page",
+  "limit",
+]);
 export const DEFAULT_ADMIN_PAYMENT_LIMIT = 10;
+export const DEFAULT_CUSTOMER_HISTORY_LIMIT = 10;
 export const MAX_PAYMENT_SEARCH_LENGTH = 100;
 export const MAX_CHECKOUT_SESSION_ID_LENGTH = 255;
 
 const ALLOWED_QUERY_KEYS = new Set(ADMIN_PAYMENT_QUERY_KEYS);
+const ALLOWED_CUSTOMER_HISTORY_KEYS = new Set(CUSTOMER_PAYMENT_HISTORY_QUERY_KEYS);
 const CHECKOUT_SESSION_ID_PATTERN = /^cs_(?:test|live)_[A-Za-z0-9]{6,255}$/;
 const UNSAFE_SEARCH_PATTERN = /[$[\]{}]|\u0000/;
 
@@ -126,6 +132,27 @@ export function parseAdminPaymentListQuery(rawQuery = {}) {
     limit:
       parsePageValue(rawQuery.limit, "limit", MAX_LIMIT) ??
       DEFAULT_ADMIN_PAYMENT_LIMIT,
+  });
+}
+
+// Customer history accepts only pagination. Ownership, status, and every other
+// filter are derived from the server-side user and never from browser input.
+export function parseCustomerPaymentHistoryQuery(rawQuery = {}) {
+  if (!rawQuery || typeof rawQuery !== "object" || Array.isArray(rawQuery)) {
+    throw badRequest("Query must be an object.");
+  }
+
+  for (const key of Object.keys(rawQuery)) {
+    if (!ALLOWED_CUSTOMER_HISTORY_KEYS.has(key)) {
+      throw badRequest("Unsupported query parameter.");
+    }
+  }
+
+  return Object.freeze({
+    page: parsePageValue(rawQuery.page, "page", MAX_PAGE) ?? DEFAULT_PAGE,
+    limit:
+      parsePageValue(rawQuery.limit, "limit", MAX_LIMIT) ??
+      DEFAULT_CUSTOMER_HISTORY_LIMIT,
   });
 }
 

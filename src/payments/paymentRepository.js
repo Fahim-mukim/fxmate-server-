@@ -7,6 +7,7 @@ import {
   PAYMENT_CHECKOUT_PROJECTION,
   PAYMENT_COLLECTION,
   PAYMENT_CURRENCY,
+  PAYMENT_CUSTOMER_HISTORY_PROJECTION,
   PAYMENT_CUSTOMER_PROJECTION,
   PAYMENT_INDEXES,
   PAYMENT_SORTS,
@@ -19,6 +20,7 @@ import {
 } from "./paymentModel.js";
 import {
   DEFAULT_ADMIN_PAYMENT_LIMIT,
+  DEFAULT_CUSTOMER_HISTORY_LIMIT,
   buildAdminPaymentFilter,
 } from "./paymentQuery.js";
 import { WEBHOOK_CODES } from "./webhookEvent.js";
@@ -81,6 +83,10 @@ function checkoutProjection() {
 
 function customerProjection() {
   return { ...PAYMENT_CUSTOMER_PROJECTION };
+}
+
+function customerHistoryProjection() {
+  return { ...PAYMENT_CUSTOMER_HISTORY_PROJECTION };
 }
 
 function adminProjection() {
@@ -269,6 +275,84 @@ export function createPaymentRepository({
       ["findOne"],
     );
     return document ? project(document, PAYMENT_CUSTOMER_PROJECTION) : null;
+  }
+
+  // Ownership is a MongoDB filter built from the canonical req.user id. The
+  // browser can narrow pagination only; it cannot change ownership or status.
+  async function listForCustomer({ customerId, page, limit } = {}) {
+    const normalizedCustomerId = normalizeReference(customerId);
+    const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
+    const safeLimit =
+      Number.isSafeInteger(limit) && limit > 0
+        ? limit
+        : DEFAULT_CUSTOMER_HISTORY_LIMIT;
+    const filter = { customerId: normalizedCustomerId };
+    const skip = (safePage - 1) * safeLimit;
+
+    const [total, documents] = await Promise.all([
+      run(
+        (collection) => collection.countDocuments(filter),
+        ["countDocuments"],
+      ),
+      run(async (collection) =>
+        collection
+          .find(filter, { projection: customerHistoryProjection() })
+          .sort(PAYMENT_SORTS[DEFAULT_PAYMENT_SORT])
+          .skip(skip)
+          .limit(safeLimit)
+          .toArray(),
+      ["find"]),
+    ]);
+
+    return {
+      items: documents.map((document) =>
+        project(document, PAYMENT_CUSTOMER_HISTORY_PROJECTION),
+      ),
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / safeLimit),
+    };
+  }
+
+  // Global, admin-only revenue KPI. It derives only from server-written paid
+  // payments and integer cents; no browser filter or amount is involved.
+  async function aggregatePaidRevenue() {
+    const rows = await run(async (collection) =>
+      collection
+        .aggregate([
+          {
+            $match: {
+              status: PAYMENT_STATUS.PAID,
+              currency: PAYMENT_CURRENCY,
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              paidCount: { $sum: 1 },
+              totalCents: { $sum: "$amountCents" },
+            },
+          },
+        ])
+        .toArray(),
+    ["aggregate"]);
+
+    const row = Array.isArray(rows) ? rows[0] : null;
+    const paidCount =
+      Number.isSafeInteger(row?.paidCount) && row.paidCount >= 0
+        ? row.paidCount
+        : 0;
+    const totalCents =
+      Number.isSafeInteger(row?.totalCents) && row.totalCents >= 0
+        ? row.totalCents
+        : 0;
+
+    return {
+      currency: PAYMENT_CURRENCY,
+      paidCount,
+      totalRevenue: totalCents / 100,
+    };
   }
 
   async function countForAdmin(criteria) {
@@ -605,6 +689,8 @@ export function createPaymentRepository({
     findPaidCheckout,
     findByCheckoutSessionId,
     findByCheckoutSessionIdForCustomer,
+    listForCustomer,
+    aggregatePaidRevenue,
     countForAdmin,
     listForAdmin,
     findByIdForWebhook,

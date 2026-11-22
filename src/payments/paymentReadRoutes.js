@@ -26,6 +26,11 @@ export function createPaymentReadRouter({ service, middleware } = {}) {
   if (typeof service?.findCustomerPayment !== "function") {
     throw new Error("createPaymentReadRouter requires service.findCustomerPayment.");
   }
+  if (typeof service?.listCustomerPayments !== "function") {
+    throw new Error(
+      "createPaymentReadRouter requires service.listCustomerPayments.",
+    );
+  }
   if (typeof service?.listAdminPayments !== "function") {
     throw new Error("createPaymentReadRouter requires service.listAdminPayments.");
   }
@@ -38,6 +43,11 @@ export function createPaymentReadRouter({ service, middleware } = {}) {
     assertNoCustomerPaymentQueryOverrides(req.query);
     const sessionId = parseCheckoutSessionId(req.params.sessionId);
     const data = await service.findCustomerPayment(sessionId, req.user);
+    return res.status(200).json({ success: true, data });
+  }));
+
+  router.get("/history", ...customer, asyncRoute(async (req, res) => {
+    const data = await service.listCustomerPayments(req.query, req.user);
     return res.status(200).json({ success: true, data });
   }));
 

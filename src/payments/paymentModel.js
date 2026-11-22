@@ -141,8 +141,9 @@ export const PAYMENT_WEBHOOK_PROJECTION = Object.freeze({
   expiresAt: 1,
 });
 
-// Read-only customer response model. It intentionally omits every Stripe
-// identifier/URL, all internal keys, and other customers' details.
+// Read-only customer verification model. It intentionally omits every Stripe
+// identifier/URL, all internal keys, and other customers' details. The return
+// from Stripe Checkout continues to use this narrow shape.
 export const PAYMENT_CUSTOMER_PROJECTION = Object.freeze({
   _id: 1,
   bookingId: 1,
@@ -155,9 +156,26 @@ export const PAYMENT_CUSTOMER_PROJECTION = Object.freeze({
   paidAt: 1,
 });
 
-// Read-only Admin listing model. It contains the safe fields needed for an
-// operations list and excludes Checkout URLs, Stripe objects/secrets,
-// PaymentIntent ids, webhook event ids, and all internal keys.
+// Read-only customer history model. The verified PaymentIntent id is exposed
+// only as a transaction reference; Checkout Session ids, Stripe event ids,
+// URLs, keys, and amounts in cents remain excluded.
+export const PAYMENT_CUSTOMER_HISTORY_PROJECTION = Object.freeze({
+  _id: 1,
+  bookingId: 1,
+  serviceTitle: 1,
+  technicianName: 1,
+  amount: 1,
+  currency: 1,
+  status: 1,
+  stripePaymentIntentId: 1,
+  createdAt: 1,
+  updatedAt: 1,
+  paidAt: 1,
+});
+
+// Read-only Admin listing model. It carries the verified PaymentIntent id as
+// a transaction reference for operations, but excludes Checkout URLs, Stripe
+// event ids, secrets, internal keys, and amounts in cents.
 export const PAYMENT_ADMIN_PROJECTION = Object.freeze({
   _id: 1,
   bookingId: 1,
@@ -168,6 +186,7 @@ export const PAYMENT_ADMIN_PROJECTION = Object.freeze({
   amount: 1,
   currency: 1,
   status: 1,
+  stripePaymentIntentId: 1,
   createdAt: 1,
   updatedAt: 1,
   paidAt: 1,
