@@ -13,6 +13,9 @@ import { createProfileRouter } from "./users/profileRoutes.js";
 import { createUserRepository } from "./users/userRepository.js";
 import { createImgBbClient } from "./uploads/imgBbClient.js";
 import { createUploadRouter } from "./uploads/uploadRoutes.js";
+import { createCheckoutRouter } from "./payments/checkoutRoutes.js";
+import { createCheckoutService } from "./payments/checkoutService.js";
+import { createPaymentRepository } from "./payments/paymentRepository.js";
 
 function createCorsOptions(config) {
   const allowedOrigins = new Set(config.clientOrigins);
@@ -40,9 +43,12 @@ export function createApp({
   services,
   bookings,
   users,
+  payments,
   tokenVerifier,
   authMiddleware,
   imageHost,
+  stripe,
+  checkoutService,
 } = {}) {
   if (!config || !database) {
     throw new Error("createApp requires config and database.");
@@ -51,6 +57,7 @@ export function createApp({
   const serviceRepository = services ?? createServiceRepository({ database });
   const bookingRepository = bookings ?? createBookingRepository({ database });
   const userRepository = users ?? createUserRepository({ database });
+  const paymentRepository = payments ?? createPaymentRepository({ database });
   const verifier = tokenVerifier ?? createJwtVerifier({
     jwksUrl: config.authJwtJwksUrl,
     issuer: config.authJwtIssuer,
@@ -62,6 +69,12 @@ export function createApp({
     users: userRepository,
   });
   const uploadHost = imageHost ?? createImgBbClient({ apiKey: config.imgbbApiKey });
+  const checkout = checkoutService ?? createCheckoutService({
+    bookings: bookingRepository,
+    payments: paymentRepository,
+    stripe,
+    redirectOrigin: config.clientOrigins[0],
+  });
 
   const app = express();
 
@@ -117,6 +130,10 @@ export function createApp({
   }));
   app.use("/api/bookings", createBookingsRouter({
     repository: bookingRepository,
+    middleware,
+  }));
+  app.use("/api/payments", createCheckoutRouter({
+    service: checkout,
     middleware,
   }));
 

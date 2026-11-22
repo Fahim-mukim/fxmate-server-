@@ -8,6 +8,7 @@ import { loadConfig } from "./src/config.js";
 import { createDatabaseManager } from "./src/database.js";
 import { sanitizeMessage } from "./src/middleware.js";
 import { createPaymentRepository } from "./src/payments/paymentRepository.js";
+import { createStripeClient } from "./src/payments/stripeClient.js";
 import { createServiceRepository } from "./src/services/serviceRepository.js";
 import { createUserRepository } from "./src/users/userRepository.js";
 
@@ -62,7 +63,32 @@ async function start() {
     audience: config.authJwtAudience,
     algorithms: config.authJwtAlgorithms,
   });
-  const app = createApp({ config, database, services, bookings, users, tokenVerifier });
+
+  // One shared, server-only Stripe client for the process. When Stripe is not
+  // configured, Checkout requests fail explicitly with PAYMENT_NOT_CONFIGURED.
+  let stripe = null;
+  if (config.stripeSecretKey) {
+    try {
+      stripe = createStripeClient({
+        secretKey: config.stripeSecretKey,
+        webhookSecret: config.stripeWebhookSecret,
+      });
+      logger.info(`Stripe Checkout initialized in ${stripe.mode} mode.`);
+    } catch (error) {
+      logger.error(`Stripe initialization failed: ${sanitizeMessage(error.message, sensitiveValues(config))}`);
+    }
+  }
+
+  const app = createApp({
+    config,
+    database,
+    services,
+    bookings,
+    users,
+    payments,
+    tokenVerifier,
+    stripe,
+  });
   const server = http.createServer(app);
 
   let shutdownPromise = null;

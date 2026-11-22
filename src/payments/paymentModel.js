@@ -63,6 +63,10 @@ export const PAYMENT_TRANSITIONS = Object.freeze({
 export const ACTIVE_PAYMENT_KEY_FIELD = "activePaymentKey";
 export const PAID_BOOKING_KEY_FIELD = "paidBookingKey";
 
+// Shared safe code for a reserved/conflicting checkout attempt. It is not an
+// uncertainty marker and never exposes another customer's booking state.
+export const PAYMENT_CHECKOUT_CONFLICT = "PAYMENT_CHECKOUT_CONFLICT";
+
 // Fixed read projection. The internal active/paid keys and internal-only
 // checkout details are excluded; no Stripe secret or raw request data is stored
 // on the document.
@@ -86,6 +90,29 @@ export const PAYMENT_PROJECTION = Object.freeze({
   createdAt: 1,
   updatedAt: 1,
   paidAt: 1,
+  expiresAt: 1,
+});
+
+// Internal read model for Checkout recovery. It includes server-only keys and
+// the hosted URL so a request can reuse or reconcile its own attempt. It is
+// never serialized to the browser.
+export const PAYMENT_CHECKOUT_PROJECTION = Object.freeze({
+  _id: 1,
+  bookingId: 1,
+  customerId: 1,
+  serviceId: 1,
+  serviceTitle: 1,
+  amount: 1,
+  amountCents: 1,
+  currency: 1,
+  status: 1,
+  stripeCheckoutSessionId: 1,
+  checkoutUrl: 1,
+  clientReferenceId: 1,
+  [ACTIVE_PAYMENT_KEY_FIELD]: 1,
+  [PAID_BOOKING_KEY_FIELD]: 1,
+  createdAt: 1,
+  updatedAt: 1,
   expiresAt: 1,
 });
 
@@ -143,6 +170,23 @@ export function normalizePaymentId(value, onInvalid = () => invalidPaymentRefere
 
 export function makeActivePaymentKey(bookingId) {
   return normalizePaymentId(bookingId).toHexString();
+}
+
+export function makePaidBookingKey(bookingId) {
+  return normalizePaymentId(bookingId).toHexString();
+}
+
+// Derived only from the persisted payment id, so every retry for the same
+// attempt reuses the same Stripe idempotency key.
+export function checkoutIdempotencyKey(paymentId) {
+  return `checkout_session_${normalizePaymentId(paymentId).toHexString()}`;
+}
+
+export function isActivePaymentStatus(status) {
+  return (
+    status === PAYMENT_STATUS.CHECKOUT_PENDING ||
+    status === PAYMENT_STATUS.AWAITING_PAYMENT
+  );
 }
 
 export function canTransitionPayment(from, to) {
