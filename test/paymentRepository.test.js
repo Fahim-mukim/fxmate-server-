@@ -65,6 +65,23 @@ test("creates all payment indexes once and is idempotent on repeat", async () =>
   assert.deepEqual(database.collectionCalls, ["payments", "payments"]);
 });
 
+test("ensureIndexes treats missing collection namespace as fresh database", async () => {
+  const payments = new FakeCollection();
+  payments.indexes = async () => {
+    payments.calls.indexes += 1;
+    const error = new Error("ns does not exist: fixmate.payments");
+    error.code = 26;
+    error.codeName = "NamespaceNotFound";
+    throw error;
+  };
+  const repository = createPaymentRepository({ database: fakeDatabase(payments) });
+
+  const result = await repository.ensureIndexes();
+
+  assert.deepEqual(result.created, PAYMENT_INDEXES.map((definition) => definition.name));
+  assert.equal(payments.calls.createIndex.length, PAYMENT_INDEXES.length);
+});
+
 test("rejects an existing named index with conflicting keys or options", async () => {
   const conflictingKeys = new FakeCollection({
     existingIndexes: [{

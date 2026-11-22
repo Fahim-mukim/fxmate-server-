@@ -150,6 +150,30 @@ test("ensureIndexes skips an equivalent index with another name", async () => {
   assert.equal(collection.calls.drop, 0);
 });
 
+test("ensureIndexes treats missing collection namespace as fresh database", async () => {
+  const collection = new FakeCollection();
+  collection.indexes = async () => {
+    collection.calls.indexes += 1;
+    const error = new Error("ns does not exist: fixmate.services");
+    error.code = 26;
+    error.codeName = "NamespaceNotFound";
+    throw error;
+  };
+  const repository = createServiceRepository({ database: fakeDatabase(collection) });
+
+  const result = await repository.ensureIndexes();
+
+  assert.deepEqual(result.created, [
+    "services_public_category_newest",
+    "services_public_category_price_asc",
+    "services_public_category_price_desc",
+    "services_technician_email",
+    "services_technician_id_newest",
+    "services_moderation_status_newest",
+  ]);
+  assert.equal(collection.calls.createIndex.length, 6);
+});
+
 test("ensureIndexes refuses a conflicting index specification without dropping", async () => {
   const collection = new FakeCollection({
     existingIndexes: [

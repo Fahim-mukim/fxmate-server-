@@ -178,7 +178,17 @@ export function createPaymentRepository({
     const collection = getCollection(["indexes", "createIndex"]);
 
     try {
-      const existingIndexes = await collection.indexes();
+      let existingIndexes = [];
+      try {
+        existingIndexes = await collection.indexes();
+      } catch (error) {
+        // Fresh databases have no collection namespace yet. MongoDB reports
+        // NamespaceNotFound (code 26) when listing indexes on a missing
+        // collection; createIndex below creates the collection implicitly.
+        if (error?.code !== 26 && error?.codeName !== "NamespaceNotFound") {
+          throw error;
+        }
+      }
       const created = [];
 
       for (const definition of PAYMENT_INDEXES) {
