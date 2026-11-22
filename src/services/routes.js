@@ -22,6 +22,8 @@ const REQUIRED_REPOSITORY_METHODS = [
   "listForModeration",
   "findForModeration",
   "setApprovalStatus",
+  "getTechnicianStats",
+  "countPendingModeration",
 ];
 
 const REQUIRED_MIDDLEWARE_METHODS = [
@@ -75,6 +77,11 @@ export function createServicesRouter({ repository, middleware } = {}) {
   router.get("/mine", ...technician, asyncRoute(async (req, res) => {
     const criteria = parseOwnedServiceListQuery(req.query);
     const data = await repository.listOwned(getTechnicianOwnerId(req.user), criteria);
+    return res.status(200).json({ success: true, data });
+  }));
+
+  router.get("/mine/stats", ...technician, asyncRoute(async (req, res) => {
+    const data = await repository.getTechnicianStats(getTechnicianOwnerId(req.user));
     return res.status(200).json({ success: true, data });
   }));
 

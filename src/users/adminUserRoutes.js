@@ -22,7 +22,7 @@ function isSelfRoleChange(actor, targetId) {
   );
 }
 
-export function createAdminUserRouter({ middleware, users } = {}) {
+export function createAdminUserRouter({ middleware, users, services } = {}) {
   if (
     typeof middleware?.verifyToken !== "function" ||
     typeof middleware?.verifyAdmin !== "function"
@@ -35,9 +35,33 @@ export function createAdminUserRouter({ middleware, users } = {}) {
   // Keep app construction backward-compatible and fail closed per request if a
   // real admin-user repository is missing.
   const userRepository = users ?? {};
+  const serviceRepository = services ?? {};
 
   const router = express.Router();
   const admin = [middleware.verifyToken, middleware.verifyAdmin];
+
+  router.get("/stats", ...admin, asyncRoute(async (req, res) => {
+    if (
+      typeof userRepository.getAdminStats !== "function" ||
+      typeof serviceRepository.countPendingModeration !== "function"
+    ) {
+      throw serviceUnavailable();
+    }
+
+    const [userStats, pendingServices] = await Promise.all([
+      userRepository.getAdminStats(),
+      serviceRepository.countPendingModeration(),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalUsers: userStats.totalUsers,
+        totalTechnicians: userStats.totalTechnicians,
+        pendingServices,
+      },
+    });
+  }));
 
   router.get("/", ...admin, asyncRoute(async (req, res) => {
     if (typeof userRepository.listAdminUsers !== "function") throw serviceUnavailable();

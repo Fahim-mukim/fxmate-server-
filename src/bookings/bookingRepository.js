@@ -14,6 +14,7 @@ import {
 } from "../services/serviceModel.js";
 import {
   ACTIVE_BOOKING_KEY_FIELD,
+  ACTIVE_BOOKING_STATUSES,
   BOOKING_COLLECTION,
   BOOKING_INDEXES,
   BOOKING_PAYMENT_READ_PROJECTION,
@@ -596,6 +597,57 @@ export function createBookingRepository({
     return document ? project(document, BOOKING_WEBHOOK_PROJECTION) : null;
   }
 
+  async function getCustomerStats(customerId) {
+    const normalizedCustomerId = normalizeBookingId(customerId, () => bookingNotFound());
+    const rows = await run(
+      async (collection) =>
+        collection
+          .aggregate([
+            { $match: { customerId: normalizedCustomerId } },
+            { $group: { _id: "$status", count: { $sum: 1 } } },
+          ])
+          .toArray(),
+      ["aggregate"],
+    );
+
+    const counts = Object.create(null);
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (typeof row?._id === "string") counts[row._id] = Number(row.count) || 0;
+    }
+
+    const totalRequests = Object.values(counts).reduce((sum, value) => sum + value, 0);
+    const activeJobs = ACTIVE_BOOKING_STATUSES.reduce(
+      (sum, status) => sum + (counts[status] || 0),
+      0,
+    );
+    const completedJobs = counts[BOOKING_STATUS.COMPLETED] || 0;
+
+    return {
+      totalRequests,
+      activeJobs,
+      completedJobs,
+    };
+  }
+
+  async function getTechnicianRequestStats(technicianId) {
+    const normalizedTechnicianId = normalizeBookingId(
+      technicianId,
+      () => bookingNotFound(),
+    );
+    const pendingRequests = await run(
+      (collection) =>
+        collection.countDocuments({
+          technicianId: normalizedTechnicianId,
+          status: BOOKING_STATUS.REQUESTED,
+        }),
+      ["countDocuments"],
+    );
+
+    return {
+      pendingRequests: Number.isSafeInteger(pendingRequests) ? pendingRequests : 0,
+    };
+  }
+
   return Object.freeze({
     ensureIndexes,
     create,
@@ -611,5 +663,7 @@ export function createBookingRepository({
     listForAdmin: (criteria) => listByFilter(listAdminFilter(criteria), criteria),
     updateStatus,
     markBookingPaidForPayment,
+    getCustomerStats,
+    getTechnicianRequestStats,
   });
 }

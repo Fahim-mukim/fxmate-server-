@@ -19,6 +19,8 @@ const REQUIRED_REPOSITORY_METHODS = [
   "listForTechnician",
   "listForAdmin",
   "updateStatus",
+  "getCustomerStats",
+  "getTechnicianRequestStats",
 ];
 
 const REQUIRED_MIDDLEWARE_METHODS = [
@@ -70,11 +72,24 @@ export function createBookingsRouter({ repository, middleware } = {}) {
     return res.status(200).json({ success: true, data });
   }));
 
+  router.get("/mine/stats", ...customer, asyncRoute(async (req, res) => {
+    const { customerId } = getCustomerIdentity(req.user);
+    const data = await repository.getCustomerStats(customerId);
+    return res.status(200).json({ success: true, data });
+  }));
+
   router.get("/technician", ...technician, asyncRoute(async (req, res) => {
     const criteria = parseBookingListQuery(req.query);
     const data = await repository.listForTechnician(
       getTechnicianOwnerId(req.user),
       criteria,
+    );
+    return res.status(200).json({ success: true, data });
+  }));
+
+  router.get("/technician/stats", ...technician, asyncRoute(async (req, res) => {
+    const data = await repository.getTechnicianRequestStats(
+      getTechnicianOwnerId(req.user),
     );
     return res.status(200).json({ success: true, data });
   }));

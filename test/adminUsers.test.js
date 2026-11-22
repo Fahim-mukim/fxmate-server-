@@ -87,8 +87,10 @@ function usersFor({
   detailError = null,
   roleError = null,
   roleResult,
+  adminStats = { totalUsers: 0, totalTechnicians: 0 },
+  adminStatsError = null,
 } = {}) {
-  const calls = { list: [], detail: [], role: [], writes: 0 };
+  const calls = { list: [], detail: [], role: [], writes: 0, adminStats: 0 };
 
   return {
     calls,
@@ -125,12 +127,18 @@ function usersFor({
         role,
       }));
     },
+    async getAdminStats() {
+      calls.adminStats += 1;
+      if (adminStatsError) throw adminStatsError;
+      return adminStats;
+    },
   };
 }
 
 function appFor({
   user = canonicalUser(),
   users = usersFor(),
+  services,
   config,
   authMiddleware,
 } = {}) {
@@ -138,9 +146,10 @@ function appFor({
     config: config ?? testConfig(),
     database: {
       isReady: () => true,
-      getDb: () => ({ collection: () => ({ findOne: async () => null }) }),
+      getDb: () => ({ collection: () => ({ findOne: async () => null, countDocuments: async () => 0, aggregate: () => ({ async toArray() { return []; } }) }) }),
     },
     users,
+    ...(services ? { services } : {}),
     authMiddleware: authMiddleware ?? middlewareFor(user),
   });
 }
@@ -757,6 +766,65 @@ test("role update authorization uses DB-backed Better Auth identity and role", a
       assert.equal(response.status, 403);
       assert.equal(payload.error.code, "FORBIDDEN");
       assert.equal(nonAdminUsers.calls.role.length, 0);
+    },
+  );
+});
+
+test("admin stats endpoint is Admin-only and uses server-side aggregation data", async () => {
+  const users = usersFor({
+    adminStats: { totalUsers: 12, totalTechnicians: 4 },
+  });
+  const services = {
+    listPublic: async () => ({ items: [], total: 0, page: 1, limit: 12, totalPages: 0 }),
+    findPublicById: async () => null,
+    create: async () => null,
+    listOwned: async () => ({ items: [], total: 0, page: 1, limit: 12, totalPages: 0 }),
+    updateOwned: async () => null,
+    deleteOwned: async () => null,
+    listForModeration: async () => ({ items: [], total: 0, page: 1, limit: 12, totalPages: 0 }),
+    findForModeration: async () => null,
+    setApprovalStatus: async () => null,
+    getTechnicianStats: async () => ({ totalServices: 0, approvedServices: 0 }),
+    countPendingModeration: async () => 5,
+  };
+
+  await withServer(
+    appFor({ user: canonicalUser({ role: "admin" }), users, services }),
+    async (baseUrl) => {
+      const ok = await request(baseUrl, "GET", "/stats");
+      assert.equal(ok.response.status, 200);
+      assert.deepEqual(ok.payload.data, {
+        totalUsers: 12,
+        totalTechnicians: 4,
+        pendingServices: 5,
+      });
+      assert.equal(users.calls.adminStats, 1);
+    },
+  );
+
+  await withServer(
+    appFor({
+      user: canonicalUser({ role: "customer" }),
+      users: usersFor(),
+      services: {
+        listPublic: async () => ({ items: [], total: 0, page: 1, limit: 12, totalPages: 0 }),
+        findPublicById: async () => null,
+        create: async () => null,
+        listOwned: async () => ({ items: [], total: 0, page: 1, limit: 12, totalPages: 0 }),
+        updateOwned: async () => null,
+        deleteOwned: async () => null,
+        listForModeration: async () => ({ items: [], total: 0, page: 1, limit: 12, totalPages: 0 }),
+        findForModeration: async () => null,
+        setApprovalStatus: async () => null,
+        getTechnicianStats: async () => ({ totalServices: 0, approvedServices: 0 }),
+        countPendingModeration: async () => 5,
+      },
+      authMiddleware: middlewareFor(canonicalUser({ role: "customer" })),
+    }),
+    async (baseUrl) => {
+      const denied = await request(baseUrl, "GET", "/stats");
+      assert.equal(denied.response.status, 403);
+      assert.equal(denied.payload.error.code, "FORBIDDEN");
     },
   );
 });

@@ -422,6 +422,42 @@ export function createServiceRepository({
     }, ["findOneAndUpdate"]);
   }
 
+  async function getTechnicianStats(ownerId) {
+    const ownerFilter = { [SERVICE_OWNER_FIELD]: normalizeOwnerId(ownerId) };
+    const rows = await run(
+      async (collection) =>
+        collection
+          .aggregate([
+            { $match: ownerFilter },
+            { $group: { _id: "$approvalStatus", count: { $sum: 1 } } },
+          ])
+          .toArray(),
+      ["aggregate"],
+    );
+
+    const counts = Object.create(null);
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (typeof row?._id === "string") counts[row._id] = Number(row.count) || 0;
+    }
+
+    const totalServices = Object.values(counts).reduce((sum, value) => sum + value, 0);
+    const approvedServices = counts[APPROVAL_STATUS.APPROVED] || 0;
+
+    return {
+      totalServices,
+      approvedServices,
+    };
+  }
+
+  async function countPendingModeration() {
+    const count = await run(
+      (collection) =>
+        collection.countDocuments({ approvalStatus: APPROVAL_STATUS.PENDING }),
+      ["countDocuments"],
+    );
+    return Number.isSafeInteger(count) ? count : 0;
+  }
+
   return Object.freeze({
     ensureIndexes,
     listPublic,
@@ -434,5 +470,7 @@ export function createServiceRepository({
     listForModeration,
     findForModeration,
     setApprovalStatus,
+    getTechnicianStats,
+    countPendingModeration,
   });
 }

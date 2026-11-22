@@ -149,6 +149,28 @@ class InMemoryServiceCollection {
     return this.documents.filter((document) => matches(document, filter)).length;
   }
 
+  aggregate(pipeline = []) {
+    let current = this.documents.map((document) => ({ ...document }));
+    for (const stage of pipeline) {
+      if (stage.$match) {
+        current = current.filter((document) => matches(document, stage.$match));
+      } else if (stage.$group) {
+        const groups = new Map();
+        for (const document of current) {
+          const keySpec = stage.$group._id;
+          const key = typeof keySpec === "string" && keySpec.startsWith("$")
+            ? document[keySpec.slice(1)]
+            : keySpec;
+          const group = groups.get(key) ?? { _id: key, count: 0 };
+          if (stage.$group.count?.$sum === 1) group.count += 1;
+          groups.set(key, group);
+        }
+        current = [...groups.values()];
+      }
+    }
+    return { async toArray() { return current.map((row) => ({ ...row })); } };
+  }
+
   find(filter, options) {
     let rows = this.documents.filter((document) => matches(document, filter));
     const cursor = {
@@ -789,5 +811,45 @@ test("public services remain approved and available only through the workflow", 
     const unavailableList = await request(baseUrl, "/api/services");
     assert.equal(unavailableList.body.data.total, 0);
     assert.equal((await request(baseUrl, `/api/services/${id}`)).response.status, 404);
+  });
+});
+
+test("technician service stats are ownership-scoped and role-protected", async () => {
+  const services = [
+    seedService({
+      _id: new ObjectId(IDS.techApproved),
+      technicianId: new ObjectId(USERS.technician._id),
+      technicianEmail: USERS.technician.email,
+      approvalStatus: "approved",
+    }),
+    seedService({
+      _id: new ObjectId(IDS.techPending),
+      technicianId: new ObjectId(USERS.technician._id),
+      technicianEmail: USERS.technician.email,
+      approvalStatus: "pending",
+    }),
+    seedService({
+      _id: new ObjectId(IDS.other),
+      technicianId: new ObjectId(USERS.otherTechnician._id),
+      technicianEmail: USERS.otherTechnician.email,
+      approvalStatus: "approved",
+    }),
+  ];
+  const { app } = createTestApp({ services });
+
+  await withServer(app, async (baseUrl) => {
+    const stats = await request(baseUrl, "/api/services/mine/stats", {
+      token: TOKENS.technician,
+    });
+    assert.equal(stats.response.status, 200);
+    assert.deepEqual(stats.body.data, { totalServices: 2, approvedServices: 1 });
+
+    const forbidden = await request(baseUrl, "/api/services/mine/stats", {
+      token: TOKENS.customer,
+    });
+    assert.equal(forbidden.response.status, 403);
+
+    const unauth = await request(baseUrl, "/api/services/mine/stats");
+    assert.equal(unauth.response.status, 401);
   });
 });

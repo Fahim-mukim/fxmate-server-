@@ -146,6 +146,7 @@ export function createApp({
   app.use("/api/admin/users", createAdminUserRouter({
     middleware,
     users: userRepository,
+    services: serviceRepository,
   }));
   app.use("/api/services", createServicesRouter({
     repository: serviceRepository,

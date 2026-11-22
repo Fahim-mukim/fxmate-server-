@@ -179,11 +179,38 @@ export function createUserRepository({
     }
   }
 
+  async function getAdminStats() {
+    try {
+      const collection = getCollection();
+      if (typeof collection.aggregate !== "function") {
+        throw serviceUnavailable();
+      }
+
+      const rows = await collection
+        .aggregate([{ $group: { _id: "$role", count: { $sum: 1 } } }])
+        .toArray();
+
+      let totalUsers = 0;
+      let totalTechnicians = 0;
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const count = Number.isSafeInteger(row?.count) ? row.count : 0;
+        totalUsers += count;
+        if (row?._id === "technician") totalTechnicians = count;
+      }
+
+      return { totalUsers, totalTechnicians };
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw serviceUnavailable();
+    }
+  }
+
   return Object.freeze({
     findByAuthUserId,
     updateProfile,
     listAdminUsers,
     findAdminUserById,
     updateAdminUserRole,
+    getAdminStats,
   });
 }

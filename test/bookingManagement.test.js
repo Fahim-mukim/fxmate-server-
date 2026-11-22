@@ -171,6 +171,30 @@ class InMemoryBookingCollection {
     return this.documents.filter((document) => matches(document, filter)).length;
   }
 
+  aggregate(pipeline = []) {
+    const rows = [];
+    let current = this.documents.map((document) => ({ ...document }));
+    for (const stage of pipeline) {
+      if (stage.$match) {
+        current = current.filter((document) => matches(document, stage.$match));
+      } else if (stage.$group) {
+        const groups = new Map();
+        for (const document of current) {
+          const keySpec = stage.$group._id;
+          const key = typeof keySpec === "string" && keySpec.startsWith("$")
+            ? document[keySpec.slice(1)]
+            : keySpec;
+          const group = groups.get(key) ?? { _id: key, count: 0 };
+          if (stage.$group.count?.$sum === 1) group.count += 1;
+          groups.set(key, group);
+        }
+        current = [...groups.values()];
+      }
+    }
+    rows.push(...current);
+    return { async toArray() { return rows.map((row) => ({ ...row })); } };
+  }
+
   find(filter, options) {
     let rows = this.documents.filter((document) => matches(document, filter));
     const cursor = {
@@ -982,5 +1006,60 @@ test("admin can inspect and filter all bookings but cannot override transitions"
       body: { status: "accepted" },
     });
     assert.equal(override.response.status, 403);
+  });
+});
+
+test("booking stats endpoints return ownership-scoped, authoritative counts", async () => {
+  const bookings = [
+    seedBooking({ _id: new ObjectId(IDS.bookingRequested), status: "requested" }),
+    seedBooking({ _id: new ObjectId(IDS.bookingAccepted), status: "accepted" }),
+    seedBooking({ _id: new ObjectId(IDS.bookingInProgress), status: "in-progress" }),
+    seedBooking({
+      _id: new ObjectId(IDS.bookingCompleted),
+      status: "completed",
+      finalAmount: 100,
+    }),
+    seedBooking({ _id: new ObjectId(IDS.bookingRejected), status: "rejected" }),
+    seedBooking({
+      _id: new ObjectId(IDS.bookingOtherCustomer),
+      customerId: new ObjectId(USERS.customerTwo._id),
+      customerEmail: USERS.customerTwo.email,
+      customerName: USERS.customerTwo.name,
+      technicianId: new ObjectId(USERS.otherTechnician._id),
+      status: "requested",
+    }),
+  ];
+
+  const { app } = createTestApp({ bookings });
+
+  await withServer(app, async (baseUrl) => {
+    const customerStats = await request(baseUrl, "/api/bookings/mine/stats", {
+      token: TOKENS.customer,
+    });
+    assert.equal(customerStats.response.status, 200);
+    assert.deepEqual(customerStats.body.data, {
+      totalRequests: 5,
+      activeJobs: 3,
+      completedJobs: 1,
+    });
+
+    const technicianStats = await request(baseUrl, "/api/bookings/technician/stats", {
+      token: TOKENS.technician,
+    });
+    assert.equal(technicianStats.response.status, 200);
+    assert.deepEqual(technicianStats.body.data, { pendingRequests: 1 });
+
+    const forbiddenCustomer = await request(baseUrl, "/api/bookings/mine/stats", {
+      token: TOKENS.technician,
+    });
+    assert.equal(forbiddenCustomer.response.status, 403);
+
+    const forbiddenTechnician = await request(baseUrl, "/api/bookings/technician/stats", {
+      token: TOKENS.customer,
+    });
+    assert.equal(forbiddenTechnician.response.status, 403);
+
+    const unauth = await request(baseUrl, "/api/bookings/mine/stats");
+    assert.equal(unauth.response.status, 401);
   });
 });
