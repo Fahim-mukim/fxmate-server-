@@ -116,6 +116,31 @@ export const PAYMENT_CHECKOUT_PROJECTION = Object.freeze({
   expiresAt: 1,
 });
 
+// Internal read model for signature-verified webhook processing. It contains
+// the identifiers and audit fields needed for exact-attempt validation and is
+// never serialized to a browser response.
+export const PAYMENT_WEBHOOK_PROJECTION = Object.freeze({
+  _id: 1,
+  bookingId: 1,
+  customerId: 1,
+  technicianId: 1,
+  serviceId: 1,
+  amount: 1,
+  amountCents: 1,
+  currency: 1,
+  status: 1,
+  stripeCheckoutSessionId: 1,
+  stripePaymentIntentId: 1,
+  stripeEventId: 1,
+  clientReferenceId: 1,
+  [ACTIVE_PAYMENT_KEY_FIELD]: 1,
+  [PAID_BOOKING_KEY_FIELD]: 1,
+  createdAt: 1,
+  updatedAt: 1,
+  paidAt: 1,
+  expiresAt: 1,
+});
+
 // Sparse unique indexes only index documents where the field is present. The
 // payment builder therefore omits these fields until a real value exists; a
 // stored `null` would be indexed and would block a second document.

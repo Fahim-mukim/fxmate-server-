@@ -50,6 +50,10 @@ export const BOOKING_TRANSITIONS = Object.freeze({
 });
 
 export const ACTIVE_BOOKING_KEY_FIELD = "activeBookingKey";
+// Server-owned internal marker written only by verified webhook processing. It
+// distinguishes a retry for the same payment attempt from a second attempt
+// trying to overwrite an already-paid booking. It is not part of API responses.
+export const PAID_BY_PAYMENT_ID_FIELD = "paidByPaymentId";
 
 export const BOOKING_SORTS = Object.freeze({
   newest: Object.freeze({ createdAt: -1, _id: -1 }),
@@ -57,8 +61,7 @@ export const BOOKING_SORTS = Object.freeze({
 
 export const DEFAULT_BOOKING_SORT = "newest";
 
-// Fixed response allowlist. The internal activeBookingKey and Mongo metadata
-// such as __v are deliberately excluded.
+// Fixed response allowlist. Internal keys and Mongo metadata are excluded.
 export const BOOKING_PROJECTION = Object.freeze({
   _id: 1,
   serviceId: 1,
@@ -80,6 +83,13 @@ export const BOOKING_PROJECTION = Object.freeze({
   finalAmount: 1,
   paymentStatus: 1,
   createdAt: 1,
+});
+
+// Internal read model for webhook validation. It adds only the server-owned
+// same-attempt marker to the public projection fields needed for checks.
+export const BOOKING_WEBHOOK_PROJECTION = Object.freeze({
+  ...BOOKING_PROJECTION,
+  [PAID_BY_PAYMENT_ID_FIELD]: 1,
 });
 
 export const BOOKING_INDEXES = Object.freeze([

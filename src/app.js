@@ -16,6 +16,8 @@ import { createUploadRouter } from "./uploads/uploadRoutes.js";
 import { createCheckoutRouter } from "./payments/checkoutRoutes.js";
 import { createCheckoutService } from "./payments/checkoutService.js";
 import { createPaymentRepository } from "./payments/paymentRepository.js";
+import { createWebhookRouter } from "./payments/webhookRoutes.js";
+import { createWebhookService } from "./payments/webhookService.js";
 
 function createCorsOptions(config) {
   const allowedOrigins = new Set(config.clientOrigins);
@@ -49,6 +51,8 @@ export function createApp({
   imageHost,
   stripe,
   checkoutService,
+  webhookService,
+  webhookLogger = null,
 } = {}) {
   if (!config || !database) {
     throw new Error("createApp requires config and database.");
@@ -75,11 +79,23 @@ export function createApp({
     stripe,
     redirectOrigin: config.clientOrigins[0],
   });
+  const webhook = webhookService ?? createWebhookService({
+    bookings: bookingRepository,
+    payments: paymentRepository,
+    stripe,
+    logger: webhookLogger,
+  });
 
   const app = express();
 
   app.disable("x-powered-by");
   app.use(cors(createCorsOptions(config)));
+
+  // Mounted before the global 1 MB JSON parser so Stripe signature
+  // verification receives the exact raw request bytes. The route-level raw
+  // parser applies only to this exact endpoint; normal routes still receive
+  // parsed JSON below.
+  app.use("/api/payments/webhook", createWebhookRouter({ service: webhook }));
 
   // Mounted before the global 1 MB JSON parser so uploads may use their own
   // larger, explicit body limit without weakening other endpoints.

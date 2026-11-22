@@ -88,6 +88,7 @@ async function start() {
     payments,
     tokenVerifier,
     stripe,
+    webhookLogger: logger,
   });
   const server = http.createServer(app);
 

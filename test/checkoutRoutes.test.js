@@ -296,7 +296,8 @@ test("visiting the cancel URL cannot release a reservation or expose another end
     assert.equal((await cancel.json()).error.code, "NOT_FOUND");
 
     const webhook = await fetch(`${baseUrl}/api/payments/webhook`, { method: "POST" });
-    assert.equal(webhook.status, 404);
+    assert.equal(webhook.status, 400);
+    assert.equal((await webhook.json()).error.code, "WEBHOOK_PAYLOAD_INVALID");
 
     const verify = await fetch(`${baseUrl}/api/payments/verify?session_id=cs_test_abc123`);
     assert.equal(verify.status, 404);

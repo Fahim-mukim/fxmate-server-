@@ -5,12 +5,15 @@ import {
   PAYMENT_CHECKOUT_CONFLICT,
   PAYMENT_CHECKOUT_PROJECTION,
   PAYMENT_COLLECTION,
+  PAYMENT_CURRENCY,
   PAYMENT_INDEXES,
   PAYMENT_STATUS,
+  PAYMENT_WEBHOOK_PROJECTION,
   makeActivePaymentKey,
   makePaidBookingKey,
   normalizePaymentId,
 } from "./paymentModel.js";
+import { WEBHOOK_CODES } from "./webhookEvent.js";
 
 function sameIndexKeys(left, right) {
   const leftEntries = Object.entries(left || {});
@@ -54,8 +57,39 @@ function project(document, projection) {
   return result;
 }
 
+// MongoDB's findOneAndUpdate returns { value: null } when no document matched.
+// Falling back to the wrapper object would be treated as a successful update.
+function updatedDocument(result) {
+  if (!result || typeof result !== "object") return null;
+  if (Object.prototype.hasOwnProperty.call(result, "value")) {
+    return result.value ?? null;
+  }
+  return result;
+}
+
 function checkoutProjection() {
   return { ...PAYMENT_CHECKOUT_PROJECTION };
+}
+
+function webhookProjection() {
+  return { ...PAYMENT_WEBHOOK_PROJECTION };
+}
+
+function webhookConflict(
+  message = "A concurrent payment writer changed the payment attempt.",
+) {
+  return new HttpError(409, WEBHOOK_CODES.CONFLICT, message);
+}
+
+function validStripeId(value, prefix) {
+  return (
+    typeof value === "string" &&
+    value.trim() === value &&
+    value.startsWith(prefix) &&
+    value.length > prefix.length &&
+    value.length <= 255 &&
+    !/\s/.test(value)
+  );
 }
 
 function normalizeReference(value) {
@@ -98,13 +132,24 @@ export function createPaymentRepository({
     return collection;
   }
 
-  async function run(operation, requiredMethods) {
+  async function run(operation, requiredMethods, mapError = null) {
     try {
       return await operation(getCollection(requiredMethods));
     } catch (error) {
       if (error instanceof HttpError) throw error;
+      if (typeof mapError === "function") {
+        const mapped = mapError(error);
+        if (mapped instanceof HttpError) throw mapped;
+      }
       throw serviceUnavailable();
     }
+  }
+
+  // The shared run() wrapper hides low-level Mongo failures. Duplicate-key
+  // errors are intentional conditional-write outcomes, so callers that use
+  // sparse unique guards must be allowed to translate them explicitly.
+  function duplicateKeyMapper(message) {
+    return (error) => (isDuplicateKeyError(error) ? webhookConflict(message) : error);
   }
 
   async function ensureIndexes() {
@@ -249,7 +294,7 @@ export function createPaymentRepository({
           }),
         ["findOneAndUpdate"],
       );
-      const document = result?.value ?? result;
+      const document = updatedDocument(result);
       return document ? project(document, PAYMENT_CHECKOUT_PROJECTION) : null;
     } catch (error) {
       if (isDuplicateKeyError(error)) {
@@ -284,8 +329,194 @@ export function createPaymentRepository({
       }),
       ["findOneAndUpdate"],
     );
-    const document = result?.value ?? result;
+    const document = updatedDocument(result);
     return document ? project(document, PAYMENT_CHECKOUT_PROJECTION) : null;
+  }
+
+  async function findByIdForWebhook(paymentId) {
+    const document = await run(
+      (collection) =>
+        collection.findOne(
+          { _id: normalizeReference(paymentId) },
+          { projection: webhookProjection() },
+        ),
+      ["findOne"],
+    );
+    return document ? project(document, PAYMENT_WEBHOOK_PROJECTION) : null;
+  }
+
+  // Verified recovery for the narrow case where Stripe created a Session but
+  // the Session-id persistence failed. It only advances the exact active
+  // checkout_pending attempt and never binds a conflicting Session id.
+  async function associateSessionForWebhook({ payment, sessionId, now = new Date() } = {}) {
+    if (!payment || typeof payment !== "object") throw webhookConflict();
+    if (!validStripeId(sessionId, "cs_")) throw webhookConflict("The Session id is invalid.");
+    const normalizedBookingId = normalizeReference(payment.bookingId);
+    const filter = {
+      _id: normalizeReference(payment._id),
+      bookingId: normalizedBookingId,
+      customerId: normalizeReference(payment.customerId),
+      [ACTIVE_PAYMENT_KEY_FIELD]: makeActivePaymentKey(normalizedBookingId),
+      [PAID_BOOKING_KEY_FIELD]: { $exists: false },
+      status: PAYMENT_STATUS.CHECKOUT_PENDING,
+      amountCents: payment.amountCents,
+      currency: PAYMENT_CURRENCY,
+      $or: [
+        { stripeCheckoutSessionId: { $exists: false } },
+        { stripeCheckoutSessionId: null },
+        { stripeCheckoutSessionId: sessionId },
+      ],
+    };
+    const $set = {
+      status: PAYMENT_STATUS.AWAITING_PAYMENT,
+      stripeCheckoutSessionId: sessionId,
+      updatedAt: now,
+    };
+
+    try {
+      const result = await run(
+        (collection) =>
+          collection.findOneAndUpdate(filter, { $set }, {
+            returnDocument: "after",
+            projection: webhookProjection(),
+          }),
+        ["findOneAndUpdate"],
+        duplicateKeyMapper("The Session belongs to another payment attempt."),
+      );
+      const document = updatedDocument(result);
+      return document ? project(document, PAYMENT_WEBHOOK_PROJECTION) : null;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        throw webhookConflict("The Session belongs to another payment attempt.");
+      }
+      throw error;
+    }
+  }
+
+  async function markPaymentProcessing({ payment, sessionId, now = new Date() } = {}) {
+    if (!payment || typeof payment !== "object") throw webhookConflict();
+    if (!validStripeId(sessionId, "cs_")) throw webhookConflict("The Session id is invalid.");
+    const normalizedBookingId = normalizeReference(payment.bookingId);
+    const filter = {
+      _id: normalizeReference(payment._id),
+      bookingId: normalizedBookingId,
+      customerId: normalizeReference(payment.customerId),
+      [ACTIVE_PAYMENT_KEY_FIELD]: makeActivePaymentKey(normalizedBookingId),
+      [PAID_BOOKING_KEY_FIELD]: { $exists: false },
+      status: PAYMENT_STATUS.AWAITING_PAYMENT,
+      stripeCheckoutSessionId: sessionId,
+      amountCents: payment.amountCents,
+      currency: PAYMENT_CURRENCY,
+    };
+
+    const result = await run(
+      (collection) =>
+        collection.findOneAndUpdate(
+          filter,
+          { $set: { status: PAYMENT_STATUS.PROCESSING, updatedAt: now } },
+          { returnDocument: "after", projection: webhookProjection() },
+        ),
+      ["findOneAndUpdate"],
+    );
+    const document = updatedDocument(result);
+    return document ? project(document, PAYMENT_WEBHOOK_PROJECTION) : null;
+  }
+
+  async function finalizePayment({
+    payment,
+    sessionId,
+    paymentIntentId,
+    eventId,
+    bookingId,
+    now = new Date(),
+  } = {}) {
+    if (!payment || typeof payment !== "object") throw webhookConflict();
+    if (!validStripeId(sessionId, "cs_")) throw webhookConflict("The Session id is invalid.");
+    if (!validStripeId(paymentIntentId, "pi_")) {
+      throw webhookConflict("The PaymentIntent id is invalid.");
+    }
+    if (typeof eventId !== "string" || eventId.trim().length === 0) {
+      throw webhookConflict("The event id is invalid.");
+    }
+    const normalizedBookingId = normalizeReference(bookingId ?? payment.bookingId);
+    const filter = {
+      _id: normalizeReference(payment._id),
+      bookingId: normalizedBookingId,
+      customerId: normalizeReference(payment.customerId),
+      [ACTIVE_PAYMENT_KEY_FIELD]: makeActivePaymentKey(normalizedBookingId),
+      [PAID_BOOKING_KEY_FIELD]: { $exists: false },
+      status: PAYMENT_STATUS.PROCESSING,
+      stripeCheckoutSessionId: sessionId,
+      amountCents: payment.amountCents,
+      currency: PAYMENT_CURRENCY,
+      $or: [
+        { stripePaymentIntentId: { $exists: false } },
+        { stripePaymentIntentId: null },
+        { stripePaymentIntentId: paymentIntentId },
+      ],
+    };
+    const $set = {
+      status: PAYMENT_STATUS.PAID,
+      stripeCheckoutSessionId: sessionId,
+      stripePaymentIntentId: paymentIntentId,
+      stripeEventId: eventId.trim(),
+      paidAt: now,
+      updatedAt: now,
+      [PAID_BOOKING_KEY_FIELD]: makePaidBookingKey(normalizedBookingId),
+    };
+
+    try {
+      const result = await run(
+        (collection) =>
+          collection.findOneAndUpdate(filter, {
+            $set,
+            $unset: { [ACTIVE_PAYMENT_KEY_FIELD]: "" },
+          }, {
+            returnDocument: "after",
+            projection: webhookProjection(),
+          }),
+        ["findOneAndUpdate"],
+        duplicateKeyMapper("A unique payment guard rejected this attempt."),
+      );
+      const document = updatedDocument(result);
+      return document ? project(document, PAYMENT_WEBHOOK_PROJECTION) : null;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        throw webhookConflict("A unique payment guard rejected this attempt.");
+      }
+      throw error;
+    }
+  }
+
+  async function markPaymentExpired({ payment, sessionId, now = new Date() } = {}) {
+    if (!payment || typeof payment !== "object") throw webhookConflict();
+    if (!validStripeId(sessionId, "cs_")) throw webhookConflict("The Session id is invalid.");
+    const normalizedBookingId = normalizeReference(payment.bookingId);
+    const filter = {
+      _id: normalizeReference(payment._id),
+      bookingId: normalizedBookingId,
+      customerId: normalizeReference(payment.customerId),
+      [ACTIVE_PAYMENT_KEY_FIELD]: makeActivePaymentKey(normalizedBookingId),
+      [PAID_BOOKING_KEY_FIELD]: { $exists: false },
+      status: PAYMENT_STATUS.AWAITING_PAYMENT,
+      stripeCheckoutSessionId: sessionId,
+      amountCents: payment.amountCents,
+      currency: PAYMENT_CURRENCY,
+    };
+
+    const result = await run(
+      (collection) =>
+        collection.findOneAndUpdate(filter, {
+          $set: { status: PAYMENT_STATUS.EXPIRED, updatedAt: now },
+          $unset: { [ACTIVE_PAYMENT_KEY_FIELD]: "" },
+        }, {
+          returnDocument: "after",
+          projection: webhookProjection(),
+        }),
+      ["findOneAndUpdate"],
+    );
+    const document = updatedDocument(result);
+    return document ? project(document, PAYMENT_WEBHOOK_PROJECTION) : null;
   }
 
   return Object.freeze({
@@ -293,8 +524,13 @@ export function createPaymentRepository({
     findActiveCheckout,
     findPaidCheckout,
     findByCheckoutSessionId,
+    findByIdForWebhook,
     insertCheckoutReservation,
     saveCheckoutSession,
     markCheckoutFailed,
+    associateSessionForWebhook,
+    markPaymentProcessing,
+    finalizePayment,
+    markPaymentExpired,
   });
 }

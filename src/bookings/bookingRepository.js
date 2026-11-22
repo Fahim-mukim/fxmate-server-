@@ -20,7 +20,9 @@ import {
   BOOKING_STATUS,
   BOOKING_TRANSITIONS,
   BOOKING_SORTS,
+  BOOKING_WEBHOOK_PROJECTION,
   DEFAULT_BOOKING_SORT,
+  PAID_BY_PAYMENT_ID_FIELD,
   TECHNICIAN_NEXT_STATUSES,
   TERMINAL_BOOKING_STATUSES,
   bookingNotFound,
@@ -28,6 +30,7 @@ import {
   makeActiveBookingKey,
   normalizeBookingId,
 } from "./bookingModel.js";
+import { BOOKING_PAYMENT_STATUS } from "../payments/paymentModel.js";
 
 const SERVICE_SNAPSHOT_PROJECTION = Object.freeze({
   _id: 1,
@@ -43,6 +46,10 @@ const SERVICE_SNAPSHOT_PROJECTION = Object.freeze({
 });
 
 const OWNED_BOOKING_PROJECTION = Object.freeze({ _id: 1, status: 1 });
+
+function webhookBookingProjection() {
+  return { ...BOOKING_WEBHOOK_PROJECTION };
+}
 
 function sameIndexKeys(left, right) {
   const leftEntries = Object.entries(left || {});
@@ -74,6 +81,16 @@ function project(document, projection) {
     if (include && Object.prototype.hasOwnProperty.call(document, field)) {
       result[field] = document[field];
     }
+  }
+  return result;
+}
+
+// MongoDB's findOneAndUpdate returns { value: null } when no document matched.
+// Falling back to the wrapper object would be treated as a successful update.
+function updatedDocument(result) {
+  if (!result || typeof result !== "object") return null;
+  if (Object.prototype.hasOwnProperty.call(result, "value")) {
+    return result.value ?? null;
   }
   return result;
 }
@@ -413,7 +430,7 @@ export function createBookingRepository({
           projection: { ...BOOKING_PROJECTION },
         },
       );
-      const document = result?.value ?? result;
+      const document = updatedDocument(result);
       if (!document) throw conflict("Booking status is no longer cancellable.");
       return document;
     }, ["findOneAndUpdate"]);
@@ -474,16 +491,92 @@ export function createBookingRepository({
           projection: { ...BOOKING_PROJECTION },
         },
       );
-      const document = result?.value ?? result;
+      const document = updatedDocument(result);
       if (!document) throw conflict("Booking status changed before the update.");
       return document;
     }, ["findOneAndUpdate"]);
+  }
+
+  async function findForPaymentWebhook({ bookingId, customerId } = {}) {
+    const normalizedBookingId = normalizeBookingId(
+      bookingId,
+      () => bookingNotFound(),
+    );
+    const normalizedCustomerId = normalizeBookingId(
+      customerId,
+      () => bookingNotFound(),
+    );
+
+    const document = await run(
+      (collection) =>
+        collection.findOne(
+          { _id: normalizedBookingId, customerId: normalizedCustomerId },
+          { projection: webhookBookingProjection() },
+        ),
+      ["findOne"],
+    );
+    return document ? project(document, BOOKING_WEBHOOK_PROJECTION) : null;
+  }
+
+  // Conditional, retry-safe booking payment update. The payment-id marker
+  // makes a retry for the same attempt indistinguishable from a no-op while a
+  // different attempt can never overwrite an already-paid booking.
+  async function markBookingPaidForPayment({
+    bookingId,
+    customerId,
+    paymentId,
+    finalAmount,
+  } = {}) {
+    const normalizedBookingId = normalizeBookingId(
+      bookingId,
+      () => bookingNotFound(),
+    );
+    const normalizedCustomerId = normalizeBookingId(
+      customerId,
+      () => bookingNotFound(),
+    );
+    const normalizedPaymentId = normalizeBookingId(
+      paymentId,
+      () => bookingNotFound(),
+    );
+    const filter = {
+      _id: normalizedBookingId,
+      customerId: normalizedCustomerId,
+      status: BOOKING_STATUS.COMPLETED,
+      finalAmount,
+      $or: [
+        {
+          paymentStatus: BOOKING_PAYMENT_STATUS.UNPAID,
+          [PAID_BY_PAYMENT_ID_FIELD]: { $exists: false },
+        },
+        {
+          paymentStatus: BOOKING_PAYMENT_STATUS.PAID,
+          [PAID_BY_PAYMENT_ID_FIELD]: normalizedPaymentId,
+        },
+      ],
+    };
+    const $set = {
+      paymentStatus: BOOKING_PAYMENT_STATUS.PAID,
+      [PAID_BY_PAYMENT_ID_FIELD]: normalizedPaymentId,
+    };
+
+    const result = await run(
+      (collection) =>
+        collection.findOneAndUpdate(filter, { $set }, {
+          returnDocument: "after",
+          projection: webhookBookingProjection(),
+        }),
+      ["findOneAndUpdate"],
+    );
+    const document = updatedDocument(result);
+    return document ? project(document, BOOKING_WEBHOOK_PROJECTION) : null;
   }
 
   return Object.freeze({
     ensureIndexes,
     create,
     findForCustomer,
+    findForPaymentWebhook,
     cancelForCustomer,
     listForCustomer: (customerId, criteria) =>
       listByFilter(listCustomerFilter(customerId), criteria),
@@ -492,5 +585,6 @@ export function createBookingRepository({
       listByFilter(listTechnicianFilter(technicianId), criteria),
     listForAdmin: (criteria) => listByFilter(listAdminFilter(criteria), criteria),
     updateStatus,
+    markBookingPaidForPayment,
   });
 }
