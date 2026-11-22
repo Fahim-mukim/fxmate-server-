@@ -57,5 +57,29 @@ export function createUserRepository({
     }
   }
 
-  return Object.freeze({ findByAuthUserId });
+  async function updateProfile(userId, patch) {
+    const filter = canonicalIdFilter(userId);
+    if (!filter) return null;
+
+    try {
+      const collection = getCollection();
+      if (typeof collection.findOneAndUpdate !== "function") {
+        throw serviceUnavailable();
+      }
+
+      return await collection.findOneAndUpdate(
+        filter,
+        { $set: patch },
+        {
+          returnDocument: "after",
+          projection: { ...USER_PROJECTION },
+        },
+      );
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw serviceUnavailable();
+    }
+  }
+
+  return Object.freeze({ findByAuthUserId, updateProfile });
 }

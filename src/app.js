@@ -8,6 +8,7 @@ import { createJwtVerifier } from "./auth/jwtVerifier.js";
 import { createErrorHandler, notFoundHandler } from "./middleware.js";
 import { createServicesRouter } from "./services/routes.js";
 import { createServiceRepository } from "./services/serviceRepository.js";
+import { createProfileRouter } from "./users/profileRoutes.js";
 import { createUserRepository } from "./users/userRepository.js";
 
 function createCorsOptions(config) {
@@ -88,6 +89,10 @@ export function createApp({
   });
 
   app.use("/api/auth", createAuthRouter({ middleware }));
+  app.use("/api/profile", createProfileRouter({
+    middleware,
+    users: userRepository,
+  }));
   app.use("/api/services", createServicesRouter({
     repository: serviceRepository,
     middleware,
