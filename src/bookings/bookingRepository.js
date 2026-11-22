@@ -16,6 +16,7 @@ import {
   ACTIVE_BOOKING_KEY_FIELD,
   BOOKING_COLLECTION,
   BOOKING_INDEXES,
+  BOOKING_PAYMENT_READ_PROJECTION,
   BOOKING_PROJECTION,
   BOOKING_STATUS,
   BOOKING_TRANSITIONS,
@@ -518,6 +519,29 @@ export function createBookingRepository({
     return document ? project(document, BOOKING_WEBHOOK_PROJECTION) : null;
   }
 
+  // Read-only, ownership-scoped lookup for the customer payment response. It
+  // loads only the booking payment flag and cannot change booking state.
+  async function findPaymentStatusForCustomer({ bookingId, customerId } = {}) {
+    const normalizedBookingId = normalizeBookingId(
+      bookingId,
+      () => bookingNotFound(),
+    );
+    const normalizedCustomerId = normalizeBookingId(
+      customerId,
+      () => bookingNotFound(),
+    );
+
+    const document = await run(
+      (collection) =>
+        collection.findOne(
+          { _id: normalizedBookingId, customerId: normalizedCustomerId },
+          { projection: { ...BOOKING_PAYMENT_READ_PROJECTION } },
+        ),
+      ["findOne"],
+    );
+    return document ? project(document, BOOKING_PAYMENT_READ_PROJECTION) : null;
+  }
+
   // Conditional, retry-safe booking payment update. The payment-id marker
   // makes a retry for the same attempt indistinguishable from a no-op while a
   // different attempt can never overwrite an already-paid booking.
@@ -577,6 +601,7 @@ export function createBookingRepository({
     create,
     findForCustomer,
     findForPaymentWebhook,
+    findPaymentStatusForCustomer,
     cancelForCustomer,
     listForCustomer: (customerId, criteria) =>
       listByFilter(listCustomerFilter(customerId), criteria),

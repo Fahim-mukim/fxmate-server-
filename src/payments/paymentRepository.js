@@ -2,17 +2,25 @@ import { HttpError, serviceUnavailable } from "../httpError.js";
 import {
   ACTIVE_PAYMENT_KEY_FIELD,
   PAID_BOOKING_KEY_FIELD,
+  PAYMENT_ADMIN_PROJECTION,
   PAYMENT_CHECKOUT_CONFLICT,
   PAYMENT_CHECKOUT_PROJECTION,
   PAYMENT_COLLECTION,
   PAYMENT_CURRENCY,
+  PAYMENT_CUSTOMER_PROJECTION,
   PAYMENT_INDEXES,
+  PAYMENT_SORTS,
   PAYMENT_STATUS,
   PAYMENT_WEBHOOK_PROJECTION,
+  DEFAULT_PAYMENT_SORT,
   makeActivePaymentKey,
   makePaidBookingKey,
   normalizePaymentId,
 } from "./paymentModel.js";
+import {
+  DEFAULT_ADMIN_PAYMENT_LIMIT,
+  buildAdminPaymentFilter,
+} from "./paymentQuery.js";
 import { WEBHOOK_CODES } from "./webhookEvent.js";
 
 function sameIndexKeys(left, right) {
@@ -69,6 +77,14 @@ function updatedDocument(result) {
 
 function checkoutProjection() {
   return { ...PAYMENT_CHECKOUT_PROJECTION };
+}
+
+function customerProjection() {
+  return { ...PAYMENT_CUSTOMER_PROJECTION };
+}
+
+function adminProjection() {
+  return { ...PAYMENT_ADMIN_PROJECTION };
 }
 
 function webhookProjection() {
@@ -236,6 +252,70 @@ export function createPaymentRepository({
       ["findOne"],
     );
     return document ? project(document, PAYMENT_CHECKOUT_PROJECTION) : null;
+  }
+
+  // Exact Session id plus canonical customer ownership in the MongoDB filter.
+  // The projection is safe to serialize; no hosted URL, Stripe id, or key is
+  // loaded for the verification response.
+  async function findByCheckoutSessionIdForCustomer({ sessionId, customerId } = {}) {
+    if (typeof sessionId !== "string" || sessionId.trim().length === 0) return null;
+    const filter = {
+      stripeCheckoutSessionId: sessionId.trim(),
+      customerId: normalizeReference(customerId),
+    };
+
+    const document = await run(
+      (collection) => collection.findOne(filter, { projection: customerProjection() }),
+      ["findOne"],
+    );
+    return document ? project(document, PAYMENT_CUSTOMER_PROJECTION) : null;
+  }
+
+  async function countForAdmin(criteria) {
+    return run(
+      (collection) => collection.countDocuments(buildAdminPaymentFilter(criteria)),
+      ["countDocuments"],
+    );
+  }
+
+  // Filtering, sorting, and pagination are all performed by MongoDB. The
+  // explicit projection prevents raw documents and internal keys from leaving
+  // the repository boundary.
+  async function listForAdmin(criteria = {}) {
+    const page = Number.isSafeInteger(criteria.page) && criteria.page > 0
+      ? criteria.page
+      : 1;
+    const limit = Number.isSafeInteger(criteria.limit) && criteria.limit > 0
+      ? criteria.limit
+      : DEFAULT_ADMIN_PAYMENT_LIMIT;
+    const sortName = Object.hasOwn(PAYMENT_SORTS, criteria.sort)
+      ? criteria.sort
+      : DEFAULT_PAYMENT_SORT;
+    const sort = { ...PAYMENT_SORTS[sortName] };
+    const filter = buildAdminPaymentFilter(criteria);
+    const skip = (page - 1) * limit;
+
+    const [total, documents] = await Promise.all([
+      countForAdmin(criteria),
+      run(async (collection) =>
+        collection
+          .find(filter, { projection: adminProjection() })
+          .sort(sort)
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
+      ["find"]),
+    ]);
+
+    return {
+      items: documents.map((document) =>
+        project(document, PAYMENT_ADMIN_PROJECTION),
+      ),
+      page,
+      limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+    };
   }
 
   async function insertCheckoutReservation(document) {
@@ -524,6 +604,9 @@ export function createPaymentRepository({
     findActiveCheckout,
     findPaidCheckout,
     findByCheckoutSessionId,
+    findByCheckoutSessionIdForCustomer,
+    countForAdmin,
+    listForAdmin,
     findByIdForWebhook,
     insertCheckoutReservation,
     saveCheckoutSession,

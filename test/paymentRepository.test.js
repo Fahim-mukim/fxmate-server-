@@ -49,7 +49,7 @@ test("creates all payment indexes once and is idempotent on repeat", async () =>
   const first = await repository.ensureIndexes();
   assert.deepEqual(first.created, PAYMENT_INDEXES.map((definition) => definition.name));
   assert.equal(first.existingCount, 0);
-  assert.equal(payments.calls.createIndex.length, 7);
+  assert.equal(payments.calls.createIndex.length, 8);
 
   const activeIndex = payments.calls.createIndex.find(
     (call) => call.options.name === "payments_active_booking_unique",
@@ -59,8 +59,8 @@ test("creates all payment indexes once and is idempotent on repeat", async () =>
 
   const second = await repository.ensureIndexes();
   assert.deepEqual(second.created, []);
-  assert.equal(second.existingCount, 7);
-  assert.equal(payments.calls.createIndex.length, 7);
+  assert.equal(second.existingCount, 8);
+  assert.equal(payments.calls.createIndex.length, 8);
   assert.equal(payments.calls.indexes, 2);
   assert.deepEqual(database.collectionCalls, ["payments", "payments"]);
 });

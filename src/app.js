@@ -16,6 +16,8 @@ import { createUploadRouter } from "./uploads/uploadRoutes.js";
 import { createCheckoutRouter } from "./payments/checkoutRoutes.js";
 import { createCheckoutService } from "./payments/checkoutService.js";
 import { createPaymentRepository } from "./payments/paymentRepository.js";
+import { createPaymentReadRouter } from "./payments/paymentReadRoutes.js";
+import { createPaymentReadService } from "./payments/paymentReadService.js";
 import { createWebhookRouter } from "./payments/webhookRoutes.js";
 import { createWebhookService } from "./payments/webhookService.js";
 
@@ -52,6 +54,7 @@ export function createApp({
   stripe,
   checkoutService,
   webhookService,
+  paymentReadService,
   webhookLogger = null,
 } = {}) {
   if (!config || !database) {
@@ -84,6 +87,10 @@ export function createApp({
     payments: paymentRepository,
     stripe,
     logger: webhookLogger,
+  });
+  const paymentRead = paymentReadService ?? createPaymentReadService({
+    payments: paymentRepository,
+    bookings: bookingRepository,
   });
 
   const app = express();
@@ -150,6 +157,10 @@ export function createApp({
   }));
   app.use("/api/payments", createCheckoutRouter({
     service: checkout,
+    middleware,
+  }));
+  app.use("/api/payments", createPaymentReadRouter({
+    service: paymentRead,
     middleware,
   }));
 

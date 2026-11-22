@@ -95,7 +95,7 @@ test("eligibility requires a completed, unpaid server-loaded booking", () => {
 });
 
 test("defines sparse unique indexes and excludes internal keys from projection", () => {
-  assert.equal(PAYMENT_INDEXES.length, 7);
+  assert.equal(PAYMENT_INDEXES.length, 8);
   const byName = new Map(PAYMENT_INDEXES.map((definition) => [definition.name, definition]));
 
   for (const name of [

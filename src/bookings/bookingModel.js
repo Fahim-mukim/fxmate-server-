@@ -92,6 +92,13 @@ export const BOOKING_WEBHOOK_PROJECTION = Object.freeze({
   [PAID_BY_PAYMENT_ID_FIELD]: 1,
 });
 
+// Minimal read-only projection for payment verification responses. It exposes
+// only the server-owned payment flag, never booking customer/technician data.
+export const BOOKING_PAYMENT_READ_PROJECTION = Object.freeze({
+  _id: 1,
+  paymentStatus: 1,
+});
+
 export const BOOKING_INDEXES = Object.freeze([
   Object.freeze({
     // Concurrency guard: active records carry this key; terminal transitions

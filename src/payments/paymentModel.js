@@ -141,6 +141,44 @@ export const PAYMENT_WEBHOOK_PROJECTION = Object.freeze({
   expiresAt: 1,
 });
 
+// Read-only customer response model. It intentionally omits every Stripe
+// identifier/URL, all internal keys, and other customers' details.
+export const PAYMENT_CUSTOMER_PROJECTION = Object.freeze({
+  _id: 1,
+  bookingId: 1,
+  serviceTitle: 1,
+  amount: 1,
+  currency: 1,
+  status: 1,
+  createdAt: 1,
+  updatedAt: 1,
+  paidAt: 1,
+});
+
+// Read-only Admin listing model. It contains the safe fields needed for an
+// operations list and excludes Checkout URLs, Stripe objects/secrets,
+// PaymentIntent ids, webhook event ids, and all internal keys.
+export const PAYMENT_ADMIN_PROJECTION = Object.freeze({
+  _id: 1,
+  bookingId: 1,
+  serviceTitle: 1,
+  customerName: 1,
+  customerEmail: 1,
+  technicianName: 1,
+  amount: 1,
+  currency: 1,
+  status: 1,
+  createdAt: 1,
+  updatedAt: 1,
+  paidAt: 1,
+});
+
+export const PAYMENT_SORTS = Object.freeze({
+  newest: Object.freeze({ createdAt: -1, _id: -1 }),
+});
+
+export const DEFAULT_PAYMENT_SORT = "newest";
+
 // Sparse unique indexes only index documents where the field is present. The
 // payment builder therefore omits these fields until a real value exists; a
 // stored `null` would be indexed and would block a second document.
@@ -176,6 +214,14 @@ export const PAYMENT_INDEXES = Object.freeze([
   Object.freeze({
     name: "payments_admin_status_created",
     keys: Object.freeze({ status: 1, createdAt: -1, _id: -1 }),
+  }),
+  Object.freeze({
+    // Admin listings default to newest-first without a status filter. Every
+    // existing non-unique read index starts with a different prefix field, so
+    // this non-unique index is required to sort and paginate that read in
+    // MongoDB. It is additive and never alters or drops existing indexes.
+    name: "payments_admin_created",
+    keys: Object.freeze({ createdAt: -1, _id: -1 }),
   }),
   Object.freeze({
     name: "payments_booking_created",
