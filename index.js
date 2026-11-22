@@ -16,13 +16,10 @@ const logger = {
 };
 
 function sensitiveValues(config) {
-  const values = [
-    process.env.MONGODB_URI,
-    process.env.FIXMATE_PROVISIONING_SECRET,
-  ];
+  const values = [process.env.MONGODB_URI];
 
   if (config) {
-    values.push(config.mongodbUri, config.provisioningSecret);
+    values.push(config.mongodbUri);
   }
 
   return values.filter((value) => typeof value === "string" && value.length > 0);
@@ -133,16 +130,6 @@ async function start() {
       );
     }
 
-    try {
-      const result = await users.ensureIndexes();
-      logger.info(
-        `User indexes verified; created ${result.created.length} missing index(es).`,
-      );
-    } catch (error) {
-      logger.error(
-        `User index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
-      );
-    }
   }
 
   await new Promise((resolve, reject) => {

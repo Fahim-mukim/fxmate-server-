@@ -8,7 +8,6 @@ import { createJwtVerifier } from "./auth/jwtVerifier.js";
 import { createErrorHandler, notFoundHandler } from "./middleware.js";
 import { createServicesRouter } from "./services/routes.js";
 import { createServiceRepository } from "./services/serviceRepository.js";
-import { PROVISIONING_SECRET_HEADER, createUsersRouter } from "./users/routes.js";
 import { createUserRepository } from "./users/userRepository.js";
 
 function createCorsOptions(config) {
@@ -17,7 +16,7 @@ function createCorsOptions(config) {
   return {
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", PROVISIONING_SECRET_HEADER],
+    allowedHeaders: ["Content-Type", "Authorization"],
     optionsSuccessStatus: 204,
     origin(origin, callback) {
       if (!origin) {
@@ -89,10 +88,6 @@ export function createApp({
   });
 
   app.use("/api/auth", createAuthRouter({ middleware }));
-  app.use("/api/internal/users", createUsersRouter({
-    users: userRepository,
-    provisioningSecret: config.provisioningSecret,
-  }));
   app.use("/api/services", createServicesRouter({
     repository: serviceRepository,
     middleware,
@@ -106,7 +101,6 @@ export function createApp({
   app.use(createErrorHandler({
     isProduction: config.isProduction,
     mongodbUri: config.mongodbUri,
-    secretValues: [config.provisioningSecret],
   }));
 
   return app;

@@ -8,7 +8,6 @@ const AUTH_ENV = {
   AUTH_JWT_JWKS_URL: "http://localhost:3000/api/auth/jwks",
   AUTH_JWT_AUDIENCE: "http://localhost:3000",
   AUTH_JWT_ALGORITHMS: "EdDSA",
-  FIXMATE_PROVISIONING_SECRET: "test-only-provisioning-secret",
 };
 
 function env(overrides = {}) {
@@ -109,13 +108,8 @@ test("rejects missing or unsupported JWT configuration", () => {
   );
 });
 
-test("requires a provisioning secret without recording its value in messages", () => {
-  assert.throws(
-    () => loadConfig(env({ FIXMATE_PROVISIONING_SECRET: "" })),
-    /FIXMATE_PROVISIONING_SECRET is required/,
-  );
-  assert.equal(
-    loadConfig(env()).provisioningSecret,
-    "test-only-provisioning-secret",
-  );
+test("does not require removed dual-provisioning configuration", () => {
+  const config = loadConfig(env({ FIXMATE_PROVISIONING_SECRET: "" }));
+
+  assert.equal(config.provisioningSecret, undefined);
 });

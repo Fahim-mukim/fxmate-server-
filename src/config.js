@@ -95,14 +95,6 @@ function parseJwtAlgorithms(rawValue, variableName = "AUTH_JWT_ALGORITHMS") {
   return Object.freeze([...new Set(algorithms)]);
 }
 
-function parseProvisioningSecret(rawValue, variableName = "FIXMATE_PROVISIONING_SECRET") {
-  const secret = String(rawValue || "");
-  if (secret.trim() === "") {
-    throw new Error(`${variableName} is required.`);
-  }
-  return secret;
-}
-
 function loadNormalConfig(env, nodeEnv, isProduction, port) {
   const mongodbUri = String(env.MONGODB_URI || "").trim();
   if (!mongodbUri) {
@@ -126,7 +118,6 @@ function loadNormalConfig(env, nodeEnv, isProduction, port) {
   const authJwtJwksUrl = parseConfiguredUrl(env.AUTH_JWT_JWKS_URL, "AUTH_JWT_JWKS_URL");
   const authJwtAudience = parseConfiguredUrl(env.AUTH_JWT_AUDIENCE, "AUTH_JWT_AUDIENCE");
   const authJwtAlgorithms = parseJwtAlgorithms(env.AUTH_JWT_ALGORITHMS);
-  const provisioningSecret = parseProvisioningSecret(env.FIXMATE_PROVISIONING_SECRET);
 
   return Object.freeze({
     nodeEnv,
@@ -139,7 +130,6 @@ function loadNormalConfig(env, nodeEnv, isProduction, port) {
     authJwtJwksUrl,
     authJwtAudience,
     authJwtAlgorithms,
-    provisioningSecret,
   });
 }
 

@@ -174,7 +174,6 @@ function testConfig() {
     authJwtJwksUrl: "http://localhost:3000/api/auth/jwks",
     authJwtAudience: "http://localhost:3000",
     authJwtAlgorithms: ["EdDSA"],
-    provisioningSecret: "test-only-provisioning-secret",
   };
 }
 

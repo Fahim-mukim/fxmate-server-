@@ -1,9 +1,13 @@
 export const APPLICATION_COLLECTIONS = Object.freeze({
-  users: "users",
+  // Better Auth's canonical user collection is the single authoritative user
+  // store. The legacy "users" collection is retained only as a migration backup.
+  users: "user",
   services: "services",
   bookings: "bookings",
   payments: "payments",
 });
+
+export const LEGACY_USER_COLLECTION = "users";
 
 export const SERVICE_COLLECTION = APPLICATION_COLLECTIONS.services;
 
@@ -19,9 +23,9 @@ export const APPROVAL_STATUSES = Object.freeze([
   APPROVAL_STATUS.REJECTED,
 ]);
 
-// Server-owned ownership/reference fields. technicianId uses the application
-// users _id from req.user; bookings.serviceId is the safe deletion-reference
-// key consistent with the documented relationship naming.
+// Server-owned ownership/reference fields. technicianId uses the canonical
+// Better Auth user _id from req.user; bookings.serviceId is the safe
+// deletion-reference key consistent with the documented relationship naming.
 export const SERVICE_OWNER_FIELD = "technicianId";
 export const BOOKING_SERVICE_FIELD = "serviceId";
 

@@ -129,8 +129,7 @@ test("verifier rejects expired, wrong-issuer, wrong-audience, and disallowed-alg
 
 test("verifyToken loads the app user by authUserId and ignores token roles", async () => {
   const user = {
-    _id: "app-user-1",
-    authUserId: SUBJECT,
+    _id: SUBJECT,
     role: "customer",
     email: "customer@example.com",
   };
@@ -218,8 +217,7 @@ test("authenticated /api/auth/me endpoint exposes only authoritative app-user da
     verifier: { verify: async () => ({ sub: SUBJECT, role: "admin" }) },
     users: {
       findByAuthUserId: async () => ({
-        _id: "app-user-1",
-        authUserId: SUBJECT,
+        _id: SUBJECT,
         name: "Test Customer",
         email: "customer@example.com",
         image: null,

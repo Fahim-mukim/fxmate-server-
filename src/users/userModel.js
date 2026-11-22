@@ -1,24 +1,15 @@
-import { APPLICATION_COLLECTIONS } from "../services/serviceModel.js";
+import { APPLICATION_COLLECTIONS, LEGACY_USER_COLLECTION } from "../services/serviceModel.js";
 
 export const USER_COLLECTION = APPLICATION_COLLECTIONS.users;
+export const LEGACY_USERS_COLLECTION = LEGACY_USER_COLLECTION;
 
 export const APP_ROLES = Object.freeze(["customer", "technician", "admin"]);
 
 // Registration is intentionally narrower than APP_ROLES: admin cannot self-register.
 export const REGISTRATION_ROLES = Object.freeze(["customer", "technician"]);
 
-export const USER_INDEXES = Object.freeze([
-  Object.freeze({
-    name: "users_auth_user_id_unique",
-    keys: Object.freeze({ authUserId: 1 }),
-    unique: true,
-    sparse: true,
-  }),
-]);
-
 export const USER_PROJECTION = Object.freeze({
   _id: 1,
-  authUserId: 1,
   name: 1,
   email: 1,
   image: 1,
@@ -38,12 +29,22 @@ export function isRegistrationRole(value) {
   return REGISTRATION_ROLES.includes(value);
 }
 
+export function canonicalUserId(user) {
+  if (!user || user._id === undefined || user._id === null) return null;
+  if (typeof user._id === "string" && user._id.trim() !== "") return user._id.trim();
+  if (typeof user._id.toHexString === "function") return user._id.toHexString();
+  return String(user._id);
+}
+
 export function toApplicationUserData(user) {
-  if (!user || typeof user !== "object") return null;
+  const id = canonicalUserId(user);
+  if (id === null) return null;
 
   return {
-    id: user._id,
-    authUserId: user.authUserId,
+    // authUserId is retained for API compatibility; both fields now identify
+    // the same canonical Better Auth user document.
+    id,
+    authUserId: id,
     name: user.name,
     email: user.email,
     image: user.image ?? null,
