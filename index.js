@@ -1,4 +1,5 @@
 import http from "node:http";
+import { pathToFileURL } from "node:url";
 import "dotenv/config";
 import { MongoClient } from "mongodb";
 import { createApp } from "./src/app.js";
@@ -37,14 +38,20 @@ function sensitiveValues(config) {
   return values.filter((value) => typeof value === "string" && value.length > 0);
 }
 
-async function start() {
+function isMainModule() {
+  const entry = process.argv[1];
+  return typeof entry === "string" && import.meta.url === pathToFileURL(entry).href;
+}
+
+let runtimePromise = null;
+
+async function initializeRuntime() {
   let config;
   try {
     config = loadConfig(process.env);
   } catch (error) {
     logger.error(`Configuration error: ${sanitizeMessage(error.message, sensitiveValues())}`);
-    process.exitCode = 1;
-    return;
+    throw error;
   }
 
   const database = createDatabaseManager({
@@ -75,7 +82,9 @@ async function start() {
       });
       logger.info(`Stripe Checkout initialized in ${stripe.mode} mode.`);
     } catch (error) {
-      logger.error(`Stripe initialization failed: ${sanitizeMessage(error.message, sensitiveValues(config))}`);
+      logger.error(
+        `Stripe initialization failed: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
+      );
     }
   }
 
@@ -90,6 +99,53 @@ async function start() {
     stripe,
     webhookLogger: logger,
   });
+
+  let databaseConnected = false;
+  try {
+    await database.connect();
+    databaseConnected = true;
+  } catch (error) {
+    logger.error(
+      `MongoDB initial connection failed; readiness will report unavailable: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
+    );
+  }
+
+  if (databaseConnected) {
+    const indexChecks = [
+      ["Service", services],
+      ["Booking", bookings],
+      ["Payment", payments],
+    ];
+
+    for (const [label, repository] of indexChecks) {
+      try {
+        const result = await repository.ensureIndexes();
+        logger.info(
+          `${label} indexes verified; created ${result.created.length} missing index(es).`,
+        );
+      } catch (error) {
+        logger.error(
+          `${label} index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
+        );
+      }
+    }
+  }
+
+  return { app, config, database };
+}
+
+function getRuntime() {
+  if (!runtimePromise) {
+    runtimePromise = initializeRuntime().catch((error) => {
+      runtimePromise = null;
+      throw error;
+    });
+  }
+  return runtimePromise;
+}
+
+async function start() {
+  const { app, config, database } = await getRuntime();
   const server = http.createServer(app);
 
   let shutdownPromise = null;
@@ -109,7 +165,9 @@ async function start() {
 
         server.close((error) => {
           if (error) {
-            logger.error(`HTTP close error: ${sanitizeMessage(error.message, sensitiveValues(config))}`);
+            logger.error(
+              `HTTP close error: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
+            );
           }
           resolve();
         });
@@ -122,7 +180,9 @@ async function start() {
       try {
         await database.close();
       } catch (error) {
-        logger.error(`MongoDB close error: ${sanitizeMessage(error.message, sensitiveValues(config))}`);
+        logger.error(
+          `MongoDB close error: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
+        );
       }
 
       logger.info("Shutdown complete.");
@@ -132,55 +192,11 @@ async function start() {
   };
 
   server.on("error", (error) => {
-    logger.error(`HTTP server error: ${sanitizeMessage(error.message, sensitiveValues(config))}`);
+    logger.error(
+      `HTTP server error: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
+    );
     shutdown("server error");
   });
-
-  let databaseConnected = false;
-  try {
-    await database.connect();
-    databaseConnected = true;
-  } catch (error) {
-    logger.error(
-      `MongoDB initial connection failed; readiness will report unavailable: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
-    );
-  }
-
-  if (databaseConnected) {
-    try {
-      const result = await services.ensureIndexes();
-      logger.info(
-        `Service indexes verified; created ${result.created.length} missing index(es).`,
-      );
-    } catch (error) {
-      logger.error(
-        `Service index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
-      );
-    }
-
-    try {
-      const result = await bookings.ensureIndexes();
-      logger.info(
-        `Booking indexes verified; created ${result.created.length} missing index(es).`,
-      );
-    } catch (error) {
-      logger.error(
-        `Booking index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
-      );
-    }
-
-    try {
-      const result = await payments.ensureIndexes();
-      logger.info(
-        `Payment indexes verified; created ${result.created.length} missing index(es).`,
-      );
-    } catch (error) {
-      logger.error(
-        `Payment index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
-      );
-    }
-
-  }
 
   await new Promise((resolve, reject) => {
     const onError = (error) => {
@@ -205,7 +221,32 @@ async function start() {
   });
 }
 
-start().catch((error) => {
-  logger.error(`Startup failed: ${sanitizeMessage(error.message, sensitiveValues())}`);
-  process.exitCode = 1;
-});
+const runningOnVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
+
+if (isMainModule() && !runningOnVercel) {
+  start().catch((error) => {
+    logger.error(`Startup failed: ${sanitizeMessage(error.message, sensitiveValues())}`);
+    process.exitCode = 1;
+  });
+}
+
+export default async function handler(req, res) {
+  try {
+    const { app } = await getRuntime();
+    return app(req, res);
+  } catch (error) {
+    const message = sanitizeMessage(error?.message, sensitiveValues());
+    logger.error(`Request handling failed before app initialization: ${message}`);
+    res.statusCode = 503;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(
+      JSON.stringify({
+        success: false,
+        error: {
+          code: "SERVICE_UNAVAILABLE",
+          message: "Service is not ready.",
+        },
+      }),
+    );
+  }
+}
