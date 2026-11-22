@@ -8,6 +8,7 @@ import { createJwtVerifier } from "./auth/jwtVerifier.js";
 import { createErrorHandler, notFoundHandler } from "./middleware.js";
 import { createServicesRouter } from "./services/routes.js";
 import { createServiceRepository } from "./services/serviceRepository.js";
+import { createAdminUserRouter } from "./users/adminUserRoutes.js";
 import { createProfileRouter } from "./users/profileRoutes.js";
 import { createUserRepository } from "./users/userRepository.js";
 import { createImgBbClient } from "./uploads/imgBbClient.js";
@@ -103,6 +104,10 @@ export function createApp({
 
   app.use("/api/auth", createAuthRouter({ middleware }));
   app.use("/api/profile", createProfileRouter({
+    middleware,
+    users: userRepository,
+  }));
+  app.use("/api/admin/users", createAdminUserRouter({
     middleware,
     users: userRepository,
   }));

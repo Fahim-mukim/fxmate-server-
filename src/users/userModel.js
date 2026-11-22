@@ -54,3 +54,22 @@ export function toApplicationUserData(user) {
     bio: user.bio ?? "",
   };
 }
+
+// Admin inspection uses a separate, deliberately narrow response. It omits the
+// internal auth-alias field and every Better Auth credential/session field.
+export function toAdminUserData(user) {
+  const id = canonicalUserId(user);
+  if (id === null) return null;
+
+  return {
+    id,
+    name: user.name,
+    email: user.email,
+    image: user.image ?? null,
+    role: user.role,
+    phone: user.phone ?? "",
+    area: user.area ?? "",
+    bio: user.bio ?? "",
+    createdAt: user.createdAt ?? null,
+  };
+}

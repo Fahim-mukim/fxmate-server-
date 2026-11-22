@@ -1,0 +1,79 @@
+import { badRequest } from "../httpError.js";
+import {
+  DEFAULT_LIMIT,
+  DEFAULT_PAGE,
+  MAX_LIMIT,
+  MAX_PAGE,
+  escapeRegex,
+  parsePositiveInteger,
+} from "../services/serviceQuery.js";
+import { isValidObjectId } from "../services/serviceModel.js";
+import { APP_ROLES } from "./userModel.js";
+
+export const ADMIN_USER_QUERY_KEYS = Object.freeze([
+  "role",
+  "search",
+  "page",
+  "limit",
+]);
+export const MAX_ADMIN_USER_SEARCH_LENGTH = 100;
+
+const ALLOWED_QUERY_KEYS = new Set(ADMIN_USER_QUERY_KEYS);
+
+function requireString(value, name) {
+  if (typeof value !== "string") {
+    throw badRequest(`${name} must be a single string.`);
+  }
+  return value;
+}
+
+function parseRole(value) {
+  if (value === undefined || value === "") return null;
+
+  const role = requireString(value, "role").trim();
+  if (!APP_ROLES.includes(role)) {
+    throw badRequest("role is not supported.");
+  }
+  return role;
+}
+
+function parseSearch(value) {
+  if (value === undefined || value === "") return null;
+
+  const text = requireString(value, "search").trim();
+  if (text.length > MAX_ADMIN_USER_SEARCH_LENGTH) {
+    throw badRequest(`search must be at most ${MAX_ADMIN_USER_SEARCH_LENGTH} characters.`);
+  }
+  if (text.includes("\u0000")) {
+    throw badRequest("search contains an unsupported character.");
+  }
+  return text;
+}
+
+export function parseAdminUserListQuery(rawQuery = {}) {
+  if (!rawQuery || typeof rawQuery !== "object" || Array.isArray(rawQuery)) {
+    throw badRequest("Query must be an object.");
+  }
+
+  for (const key of Object.keys(rawQuery)) {
+    if (!ALLOWED_QUERY_KEYS.has(key)) {
+      throw badRequest("Unsupported query parameter.");
+    }
+  }
+
+  return Object.freeze({
+    role: parseRole(rawQuery.role),
+    search: parseSearch(rawQuery.search),
+    page: parsePositiveInteger(rawQuery.page, "page", MAX_PAGE) ?? DEFAULT_PAGE,
+    limit: parsePositiveInteger(rawQuery.limit, "limit", MAX_LIMIT) ?? DEFAULT_LIMIT,
+  });
+}
+
+export function userSearchPattern(search) {
+  if (!search) return null;
+  return new RegExp(escapeRegex(search), "i");
+}
+
+export function isValidAdminUserId(value) {
+  return typeof value === "string" && isValidObjectId(value);
+}

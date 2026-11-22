@@ -1,6 +1,11 @@
 import { ObjectId } from "mongodb";
-import { HttpError, serviceUnavailable } from "../httpError.js";
-import { USER_COLLECTION, USER_PROJECTION } from "./userModel.js";
+import { HttpError, notFound, serviceUnavailable } from "../httpError.js";
+import { userSearchPattern } from "./adminUserQuery.js";
+import {
+  USER_COLLECTION,
+  USER_PROJECTION,
+  toAdminUserData,
+} from "./userModel.js";
 
 const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
 
@@ -81,5 +86,66 @@ export function createUserRepository({
     }
   }
 
-  return Object.freeze({ findByAuthUserId, updateProfile });
+  async function listAdminUsers(criteria) {
+    const filter = {};
+    if (criteria?.role) filter.role = criteria.role;
+
+    const pattern = userSearchPattern(criteria?.search);
+    if (pattern) {
+      filter.$or = [{ name: pattern }, { email: pattern }];
+    }
+
+    const page = criteria?.page ?? 1;
+    const limit = criteria?.limit ?? 12;
+    const skip = (page - 1) * limit;
+
+    try {
+      const collection = getCollection();
+      const [total, documents] = await Promise.all([
+        collection.countDocuments(filter),
+        collection
+          .find(filter, { projection: { ...USER_PROJECTION } })
+          .sort({ createdAt: -1, _id: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
+      ]);
+
+      return {
+        items: documents.map(toAdminUserData),
+        page,
+        limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      };
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw serviceUnavailable();
+    }
+  }
+
+  async function findAdminUserById(id) {
+    const filter = canonicalIdFilter(id);
+    if (!filter || !OBJECT_ID_PATTERN.test(String(id).trim())) {
+      throw notFound("User not found.");
+    }
+
+    try {
+      const document = await getCollection().findOne(filter, {
+        projection: { ...USER_PROJECTION },
+      });
+      if (!document) throw notFound("User not found.");
+      return toAdminUserData(document);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw serviceUnavailable();
+    }
+  }
+
+  return Object.freeze({
+    findByAuthUserId,
+    updateProfile,
+    listAdminUsers,
+    findAdminUserById,
+  });
 }
