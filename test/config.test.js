@@ -119,3 +119,52 @@ test("does not require removed dual-provisioning configuration", () => {
 
   assert.equal(config.provisioningSecret, undefined);
 });
+
+// Synthetic, non-functional values used only to exercise structural parsing.
+// No real Stripe credential is present in this repository.
+const FAKE_TEST_KEY = "sk_test_" + "notarealkey".repeat(3);
+const FAKE_LIVE_KEY = "sk_live_" + "notarealkey".repeat(3);
+const FAKE_WEBHOOK_SECRET = "whsec_" + "notarealsecret".repeat(3);
+
+test("leaves Stripe configuration optional and null when absent", () => {
+  const config = loadConfig(env());
+
+  assert.equal(config.stripeSecretKey, null);
+  assert.equal(config.stripeWebhookSecret, null);
+  assert.equal(loadConfig(env({ STRIPE_SECRET_KEY: "   " })).stripeSecretKey, null);
+  assert.equal(loadConfig(env({ STRIPE_WEBHOOK_SECRET: "   " })).stripeWebhookSecret, null);
+});
+
+test("accepts structurally valid test-mode and webhook values without calling Stripe", () => {
+  const config = loadConfig(env({
+    STRIPE_SECRET_KEY: `  ${FAKE_TEST_KEY}  `,
+    STRIPE_WEBHOOK_SECRET: `  ${FAKE_WEBHOOK_SECRET}  `,
+  }));
+
+  assert.equal(config.stripeSecretKey, FAKE_TEST_KEY);
+  assert.equal(config.stripeWebhookSecret, FAKE_WEBHOOK_SECRET);
+  assert.equal(loadConfig(env({ STRIPE_SECRET_KEY: FAKE_LIVE_KEY })).stripeSecretKey, FAKE_LIVE_KEY);
+});
+
+test("rejects invalid Stripe value formats without revealing the value", () => {
+  const badKey = "pk_test_" + "notarealkey".repeat(3);
+  const badWebhook = "not_a_webhook_secret";
+
+  let keyError;
+  try {
+    loadConfig(env({ STRIPE_SECRET_KEY: badKey }));
+  } catch (error) {
+    keyError = error;
+  }
+  assert.match(keyError.message, /^STRIPE_SECRET_KEY is invalid\.$/);
+  assert.equal(keyError.message.includes(badKey), false);
+
+  let webhookError;
+  try {
+    loadConfig(env({ STRIPE_WEBHOOK_SECRET: badWebhook }));
+  } catch (error) {
+    webhookError = error;
+  }
+  assert.match(webhookError.message, /^STRIPE_WEBHOOK_SECRET is invalid\.$/);
+  assert.equal(webhookError.message.includes(badWebhook), false);
+});

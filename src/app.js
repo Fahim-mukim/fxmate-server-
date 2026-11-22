@@ -124,7 +124,11 @@ export function createApp({
   app.use(createErrorHandler({
     isProduction: config.isProduction,
     mongodbUri: config.mongodbUri,
-    secretValues: config.imgbbApiKey ? [config.imgbbApiKey] : [],
+    secretValues: [
+      config.imgbbApiKey,
+      config.stripeSecretKey,
+      config.stripeWebhookSecret,
+    ].filter((value) => typeof value === "string" && value.length > 0),
   }));
 
   return app;

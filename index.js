@@ -7,6 +7,7 @@ import { createJwtVerifier } from "./src/auth/jwtVerifier.js";
 import { loadConfig } from "./src/config.js";
 import { createDatabaseManager } from "./src/database.js";
 import { sanitizeMessage } from "./src/middleware.js";
+import { createPaymentRepository } from "./src/payments/paymentRepository.js";
 import { createServiceRepository } from "./src/services/serviceRepository.js";
 import { createUserRepository } from "./src/users/userRepository.js";
 
@@ -16,10 +17,20 @@ const logger = {
 };
 
 function sensitiveValues(config) {
-  const values = [process.env.MONGODB_URI, process.env.IMGBB_API_KEY];
+  const values = [
+    process.env.MONGODB_URI,
+    process.env.IMGBB_API_KEY,
+    process.env.STRIPE_SECRET_KEY,
+    process.env.STRIPE_WEBHOOK_SECRET,
+  ];
 
   if (config) {
-    values.push(config.mongodbUri, config.imgbbApiKey);
+    values.push(
+      config.mongodbUri,
+      config.imgbbApiKey,
+      config.stripeSecretKey,
+      config.stripeWebhookSecret,
+    );
   }
 
   return values.filter((value) => typeof value === "string" && value.length > 0);
@@ -44,6 +55,7 @@ async function start() {
   const services = createServiceRepository({ database });
   const bookings = createBookingRepository({ database });
   const users = createUserRepository({ database });
+  const payments = createPaymentRepository({ database });
   const tokenVerifier = createJwtVerifier({
     jwksUrl: config.authJwtJwksUrl,
     issuer: config.authJwtIssuer,
@@ -127,6 +139,17 @@ async function start() {
     } catch (error) {
       logger.error(
         `Booking index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
+      );
+    }
+
+    try {
+      const result = await payments.ensureIndexes();
+      logger.info(
+        `Payment indexes verified; created ${result.created.length} missing index(es).`,
+      );
+    } catch (error) {
+      logger.error(
+        `Payment index initialization failed; existing indexes were left unchanged: ${sanitizeMessage(error.message, sensitiveValues(config))}`,
       );
     }
 

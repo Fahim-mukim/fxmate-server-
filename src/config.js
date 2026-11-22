@@ -3,6 +3,8 @@ const DEFAULT_DEVELOPMENT_ORIGIN = "http://localhost:3000";
 const DEFAULT_DATABASE_NAME = "fixmate";
 const MONGODB_URI_PREFIXES = ["mongodb://", "mongodb+srv://"];
 const SUPPORTED_JWT_ALGORITHMS = new Set(["EdDSA"]);
+const STRIPE_SECRET_KEY_PREFIXES = ["sk_test_", "sk_live_"];
+const STRIPE_WEBHOOK_SECRET_PREFIXES = ["whsec_"];
 
 function parsePort(rawValue) {
   if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") {
@@ -84,6 +86,19 @@ function parseOptionalServerSecret(rawValue) {
   return trimmed ? trimmed : null;
 }
 
+// Stripe values are optional at config-load time because payment features are
+// not enabled in every deployment or test run. Syntax is checked when present;
+// the raw value is never included in an error message. The Stripe client
+// factory enforces presence when a payment feature is actually wired.
+function parseOptionalStripeSecret(rawValue, variableName, allowedPrefixes) {
+  const trimmed = String(rawValue ?? "").trim();
+  if (!trimmed) return null;
+  if (!allowedPrefixes.some((prefix) => trimmed.startsWith(prefix))) {
+    throw new Error(`${variableName} is invalid.`);
+  }
+  return trimmed;
+}
+
 function parseJwtAlgorithms(rawValue, variableName = "AUTH_JWT_ALGORITHMS") {
   const algorithms = String(rawValue || "")
     .split(",")
@@ -137,6 +152,16 @@ function loadNormalConfig(env, nodeEnv, isProduction, port) {
     authJwtAlgorithms,
     // Server-only; never forwarded to the Client or included in public errors.
     imgbbApiKey: parseOptionalServerSecret(env.IMGBB_API_KEY),
+    stripeSecretKey: parseOptionalStripeSecret(
+      env.STRIPE_SECRET_KEY,
+      "STRIPE_SECRET_KEY",
+      STRIPE_SECRET_KEY_PREFIXES,
+    ),
+    stripeWebhookSecret: parseOptionalStripeSecret(
+      env.STRIPE_WEBHOOK_SECRET,
+      "STRIPE_WEBHOOK_SECRET",
+      STRIPE_WEBHOOK_SECRET_PREFIXES,
+    ),
   });
 }
 
