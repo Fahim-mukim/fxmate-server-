@@ -292,6 +292,60 @@ test("ImgBB client fails closed for missing configuration and bad upstream respo
   }
 });
 
+test("ImgBB client maps invalid key/provider rejection, timeout, and malformed response safely", async () => {
+  const logs = [];
+  const logger = {
+    error: (message) => logs.push(message),
+    info: (message) => logs.push(message),
+  };
+
+  const invalidKeyClient = createImgBbClient({
+    apiKey: "test-secret-key",
+    logger,
+    fetchImpl: async () => new Response(JSON.stringify({
+      success: false,
+      status_code: 400,
+      error: { message: "Invalid API v1 key.", code: 100 },
+    }), { status: 400, headers: { "Content-Type": "application/json" } }),
+  });
+  await assert.rejects(
+    () => invalidKeyClient.uploadImage({ base64: PNG_BASE64, name: "photo.png" }),
+    (error) => error.status === 502 && error.code === "IMAGE_HOST_FAILED",
+  );
+
+  const timeoutClient = createImgBbClient({
+    apiKey: "test-secret-key",
+    logger,
+    timeoutMs: 5,
+    fetchImpl: async (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      }, { once: true });
+    }),
+  });
+  await assert.rejects(
+    () => timeoutClient.uploadImage({ base64: PNG_BASE64 }),
+    (error) => error.status === 502 && error.code === "IMAGE_HOST_FAILED",
+  );
+
+  const malformedClient = createImgBbClient({
+    apiKey: "test-secret-key",
+    logger,
+    fetchImpl: async () => new Response("not-json", { status: 200 }),
+  });
+  await assert.rejects(
+    () => malformedClient.uploadImage({ base64: PNG_BASE64 }),
+    (error) => error.status === 502 && error.code === "IMAGE_HOST_FAILED",
+  );
+
+  const serializedLogs = logs.join("\n");
+  assert.ok(!serializedLogs.includes("test-secret-key"), "logs must not contain the API key");
+  assert.ok(!serializedLogs.includes(PNG_BASE64), "logs must not contain image data");
+  assert.match(serializedLogs, /provider_response|network_error|parse_response/);
+});
+
 test("POST /api/uploads updates only the authenticated canonical user's image", async () => {
   const user = canonicalUser();
   const updated = canonicalUser({ _id: user._id, image: HOSTED_URL });
@@ -417,4 +471,37 @@ test("uploads map host failures, missing profiles, and missing configuration saf
     assert.equal(response.status, 503);
     assert.equal(payload.error.code, "IMAGE_UPLOAD_UNAVAILABLE");
   });
+});
+
+
+test("upload route logs safe diagnostics without leaking secrets or file contents", async () => {
+  const logs = [];
+  const logger = { info: (m) => logs.push(m), error: (m) => logs.push(m) };
+  const secretKey = "test-secret-key";
+  const imageHost = {
+    async uploadImage() {
+      throw new HttpError(502, "IMAGE_HOST_FAILED", "Image upload failed.");
+    },
+  };
+  const app = createApp({
+    config: testConfig({ imgbbApiKey: secretKey }),
+    database: testDatabase(),
+    users: usersFor(canonicalUser()),
+    authMiddleware: middlewareFor(canonicalUser()),
+    imageHost,
+    logger,
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const { response, payload } = await request(baseUrl, uploadBody());
+    assert.equal(response.status, 502);
+    assert.equal(payload.error.code, "IMAGE_HOST_FAILED");
+    assert.equal(payload.error.message, "Image upload failed.");
+  });
+
+  const serialized = logs.join("\n");
+  assert.ok(!serialized.includes(secretKey), "key must not appear in logs");
+  assert.ok(!serialized.includes(PNG_BASE64), "image data must not appear in logs");
+  assert.ok(!serialized.includes("Bearer"), "auth header must not appear in logs");
+  assert.match(serialized, /image_upload_route/);
 });

@@ -98,6 +98,7 @@ async function initializeRuntime() {
     tokenVerifier,
     stripe,
     webhookLogger: logger,
+    logger,
   });
 
   let databaseConnected = false;

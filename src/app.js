@@ -56,6 +56,7 @@ export function createApp({
   webhookService,
   paymentReadService,
   webhookLogger = null,
+  logger = webhookLogger,
 } = {}) {
   if (!config || !database) {
     throw new Error("createApp requires config and database.");
@@ -75,7 +76,10 @@ export function createApp({
     verifier,
     users: userRepository,
   });
-  const uploadHost = imageHost ?? createImgBbClient({ apiKey: config.imgbbApiKey });
+  const uploadHost = imageHost ?? createImgBbClient({
+    apiKey: config.imgbbApiKey,
+    logger,
+  });
   const checkout = checkoutService ?? createCheckoutService({
     bookings: bookingRepository,
     payments: paymentRepository,
@@ -110,6 +114,7 @@ export function createApp({
     middleware,
     users: userRepository,
     imageHost: uploadHost,
+    logger,
   }));
 
   app.use(express.json({ limit: "1mb" }));
