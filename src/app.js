@@ -85,6 +85,7 @@ export function createApp({
     payments: paymentRepository,
     stripe,
     redirectOrigin: config.clientOrigins[0],
+    logger,
   });
   const webhook = webhookService ?? createWebhookService({
     bookings: bookingRepository,

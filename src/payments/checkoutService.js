@@ -100,6 +100,7 @@ export function createCheckoutService({
   payments,
   stripe = null,
   redirectOrigin,
+  logger = null,
   now = () => new Date(),
 } = {}) {
   const missingBookingMethod = REQUIRED_BOOKING_METHODS.find(
@@ -120,6 +121,37 @@ export function createCheckoutService({
   }
 
   const origin = resolveCheckoutRedirectOrigin(redirectOrigin);
+
+  function logStripeCheckoutCreateFailed(error, { definite, idempotencyKeyPresent }) {
+    const method = typeof logger?.error === "function" ? logger.error : null;
+    if (!method) return;
+
+    const stripeType = typeof error?.type === "string" ? error.type.slice(0, 120) : null;
+    const stripeCode = typeof error?.code === "string" ? error.code.slice(0, 120) : null;
+    const rawStatus = Number(error?.statusCode ?? error?.status);
+    const stripeStatusCode =
+      Number.isSafeInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599
+        ? rawStatus
+        : null;
+    const stripeRequestId =
+      typeof error?.requestId === "string" ? error.requestId.slice(0, 255) : null;
+
+    const safe = {
+      event: "stripe_checkout_create_failed",
+      stripeType,
+      stripeCode,
+      stripeStatusCode,
+      stripeRequestId,
+      definite: definite === true,
+      idempotencyKeyPresent: idempotencyKeyPresent === true,
+    };
+
+    try {
+      method(JSON.stringify(safe));
+    } catch {
+      // Logging must never change a payment outcome.
+    }
+  }
 
   // Releases a reservation only when no Session could possibly have been
   // created. Unknown states keep the active key for a same-key retry.
@@ -156,7 +188,13 @@ export function createCheckoutService({
     try {
       session = await stripe.client.checkout.sessions.create(params, { idempotencyKey });
     } catch (error) {
-      if (isDefiniteStripeFailure(error)) {
+      const definite = isDefiniteStripeFailure(error);
+      logStripeCheckoutCreateFailed(error, {
+        definite,
+        idempotencyKeyPresent: typeof idempotencyKey === "string" && idempotencyKey.length > 0,
+      });
+
+      if (definite) {
         // A definite pre-creation rejection must not leave a live reservation.
         // If a concurrent request already saved a Session, reuse it instead.
         const failed = await payments.markCheckoutFailed({ payment, now: now() });

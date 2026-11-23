@@ -238,6 +238,7 @@ function setup({
   bookingError,
   payments = {},
   stripe = fakeStripe(),
+  logger,
   now = () => new Date("2026-11-22T12:00:00Z"),
 } = {}) {
   const bookings = fakeBookings({ booking, error: bookingError });
@@ -247,6 +248,7 @@ function setup({
     payments: paymentStore,
     stripe: stripe?.value ?? stripe,
     redirectOrigin: "https://client.example.com",
+    logger,
     now,
   });
   return { service, bookings, payments: paymentStore, stripe };
@@ -499,6 +501,151 @@ test("an ambiguous Stripe failure keeps the attempt and retries with the same ke
   assert.equal(stripe.calls.length, 2);
   assert.equal(stripe.calls[0].options.idempotencyKey, stripe.calls[1].options.idempotencyKey);
   assert.equal(payments.state.calls.filter((call) => call.method === "insertCheckoutReservation").length, 1);
+});
+
+test("Stripe authentication failure logs safe fields and returns generic 502", async () => {
+  const loggerCalls = [];
+  const logger = { error: (entry) => loggerCalls.push(entry) };
+  const stripe = fakeStripe({
+    error: Object.assign(new Error("Invalid API Key provided: sk_test_secret"), {
+      type: "StripeAuthenticationError",
+      code: "api_key_expired",
+      statusCode: 401,
+      requestId: "req_test_auth_123",
+    }),
+  });
+  const { service } = setup({ stripe, logger });
+
+  await expectCode(
+    service.createCheckout({ bookingId: IDS.booking, user: USER }),
+    502,
+    "PAYMENT_PROVIDER_FAILED",
+  );
+
+  assert.equal(loggerCalls.length, 1);
+  const event = JSON.parse(loggerCalls[0]);
+  assert.deepEqual(event, {
+    event: "stripe_checkout_create_failed",
+    stripeType: "StripeAuthenticationError",
+    stripeCode: "api_key_expired",
+    stripeStatusCode: 401,
+    stripeRequestId: "req_test_auth_123",
+    definite: true,
+    idempotencyKeyPresent: true,
+  });
+});
+
+test("Stripe invalid request failure logs safe fields and returns generic 502", async () => {
+  const loggerCalls = [];
+  const logger = { error: (entry) => loggerCalls.push(entry) };
+  const stripe = fakeStripe({
+    error: Object.assign(new Error("Invalid parameter"), {
+      type: "StripeInvalidRequestError",
+      code: "parameter_invalid_empty",
+      statusCode: 400,
+      requestId: "req_test_invalid_456",
+    }),
+  });
+  const { service, payments } = setup({ stripe, logger });
+
+  await expectCode(
+    service.createCheckout({ bookingId: IDS.booking, user: USER }),
+    502,
+    "PAYMENT_PROVIDER_FAILED",
+  );
+
+  assert.equal(loggerCalls.length, 1);
+  const event = JSON.parse(loggerCalls[0]);
+  assert.equal(event.event, "stripe_checkout_create_failed");
+  assert.equal(event.stripeType, "StripeInvalidRequestError");
+  assert.equal(event.stripeCode, "parameter_invalid_empty");
+  assert.equal(event.stripeStatusCode, 400);
+  assert.equal(event.stripeRequestId, "req_test_invalid_456");
+  assert.equal(event.definite, true);
+  assert.equal(event.idempotencyKeyPresent, true);
+  assert.equal(payments.state.active.status, PAYMENT_STATUS.CHECKOUT_FAILED);
+});
+
+test("Ambiguous Stripe/network failure logs definite:false and returns generic 503", async () => {
+  const loggerCalls = [];
+  const logger = { error: (entry) => loggerCalls.push(entry) };
+  const stripe = fakeStripe({
+    error: Object.assign(new Error("fetch failed"), { statusCode: 500, requestId: "req_test_ambig_789" }),
+  });
+  const { service, payments } = setup({ stripe, logger });
+
+  await expectCode(
+    service.createCheckout({ bookingId: IDS.booking, user: USER }),
+    503,
+    "PAYMENT_PROVIDER_UNAVAILABLE",
+  );
+
+  assert.equal(loggerCalls.length, 1);
+  const event = JSON.parse(loggerCalls[0]);
+  assert.equal(event.event, "stripe_checkout_create_failed");
+  assert.equal(event.definite, false);
+  assert.equal(event.idempotencyKeyPresent, true);
+  assert.equal(event.stripeStatusCode, 500);
+  assert.equal(event.stripeRequestId, "req_test_ambig_789");
+  assert.equal(payments.state.active.status, PAYMENT_STATUS.CHECKOUT_PENDING);
+});
+
+test("Stripe checkout failure logs contain no forbidden secrets, PII, raw objects, or URLs", async () => {
+  const loggerCalls = [];
+  const logger = { error: (entry) => loggerCalls.push(entry) };
+  const secretKey = "sk_test_super_secret_value";
+  const webhookSecret = "whsec_super_secret_value";
+  const customerEmail = "Canonical.Customer@Example.test";
+  const customerName = "Canonical Customer";
+  const checkoutUrl = "https://checkout.stripe.com/c/pay/cs_test_abc123";
+  const stripe = fakeStripe({
+    error: Object.assign(new Error(`Stripe failure ${secretKey} ${webhookSecret} ${customerEmail}`), {
+      type: "StripeAuthenticationError",
+      code: "api_key_expired",
+      statusCode: 401,
+      requestId: "req_test_safe_000",
+      header: `Bearer ${secretKey}`,
+      raw: {
+        message: `bad key ${secretKey}`,
+        headers: { authorization: `Bearer ${secretKey}` },
+      },
+    }),
+  });
+  const { service } = setup({ stripe, logger });
+
+  await expectCode(
+    service.createCheckout({ bookingId: IDS.booking, user: USER }),
+    502,
+    "PAYMENT_PROVIDER_FAILED",
+  );
+
+  assert.equal(loggerCalls.length, 1);
+  const logged = String(loggerCalls[0]);
+  for (const forbidden of [
+    secretKey,
+    webhookSecret,
+    customerEmail,
+    customerName,
+    checkoutUrl,
+    "Bearer ",
+    "authorization",
+    "sk_test_",
+    "whsec_",
+    "[object Object]",
+  ]) {
+    assert.equal(logged.includes(forbidden), false, `log leaked: ${forbidden}`);
+  }
+
+  const event = JSON.parse(logged);
+  assert.deepEqual(Object.keys(event).sort(), [
+    "definite",
+    "event",
+    "idempotencyKeyPresent",
+    "stripeCode",
+    "stripeRequestId",
+    "stripeStatusCode",
+    "stripeType",
+  ]);
 });
 
 test("a Session saved with a conditional-write conflict is recovered on the same request", async () => {
