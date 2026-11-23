@@ -654,6 +654,36 @@ test("paid and processing payments cannot be expired", async () => {
   }
 });
 
+test("duplicate delivery of the same completed Stripe event is idempotent", async () => {
+  const { service, payments, bookings } = setup();
+  assert.deepEqual(await deliver(service), { outcome: "processed" });
+  assert.deepEqual(await deliver(service), { outcome: "already_paid" });
+  assert.equal(payments.calls.filter((call) => call.method === "finalizePayment").length, 1);
+  assert.equal(
+    bookings.calls.filter((call) => call.method === "markBookingPaidForPayment").length,
+    1,
+  );
+  assert.equal(payments.state.payment.status, PAYMENT_STATUS.PAID);
+  assert.equal(bookings.state.booking.paymentStatus, "paid");
+  assert.equal(payments.state.payment.stripeEventId, IDS.event);
+});
+
+test("duplicate expired webhook delivery remains safe and unpaid", async () => {
+  const { service, payments, bookings } = setup({
+    event: stripeEvent({
+      type: STRIPE_WEBHOOK_EVENTS.CHECKOUT_EXPIRED,
+      session: { payment_status: "unpaid", payment_intent: null },
+    }),
+  });
+  assert.deepEqual(await deliver(service), { outcome: "expired" });
+  assert.deepEqual(await deliver(service), { outcome: "ignored_stale_expiration" });
+  assert.equal(payments.calls.filter((call) => call.method === "markPaymentExpired").length, 1);
+  assert.equal(payments.state.payment.status, PAYMENT_STATUS.EXPIRED);
+  assert.equal(payments.state.payment[ACTIVE_PAYMENT_KEY_FIELD], undefined);
+  assert.equal(bookings.state.booking.paymentStatus, "unpaid");
+  assert.equal(bookings.state.booking[PAID_BY_PAYMENT_ID_FIELD], undefined);
+});
+
 test("logs contain only safe outcome fields, never payloads, URLs, or secrets", async () => {
   const { service, logs } = setup({
     event: stripeEvent({

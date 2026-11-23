@@ -55,6 +55,7 @@ npm run dev
 - `npm run check` - syntax-check server entry/scripts/source modules.
 - `npm run migrate:users` - legacy users-to-canonical-user migration script (explicit/manual; inspect script before use).
 - `npm run seed:demo` - explicit, opt-in demo seed workflow (see Seed Data section).
+- `npm run remediate:booking-final-amount` - guarded one-time maintenance script for correcting a single completed, unpaid booking `finalAmount`; dry-run by default, `--apply` required, strict preconditions, no production data changes during normal development/tests.
 
 ## Required Server Environment Variable Names
 
