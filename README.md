@@ -6,7 +6,7 @@ FixMate Server is the independent Express/MongoDB backend for FixMate, a role-ba
 
 - Live API URL: https://fxmate-server.vercel.app (owner-confirmed)
 - Live Client URL: https://fixmate-client-snowy.vercel.app (owner-confirmed; see Client README)
-- Deployed commit SHA: `PENDING OWNER DECISION` (owner to confirm the exact deployed SHA)
+- Deployed commit SHA: owner-confirmed `5cb06e9fd826e0960a5c6e95b185fce92b2a9f18`; no Server source changed during the Phase 50 Checkout URL fix.
 
 ## Repository Links
 
@@ -104,7 +104,7 @@ Configure these names in a local `.env` file (never commit real values). See `.e
 - Checkout session creation is server-side (`src/payments/checkoutService.js`, `src/payments/checkoutRoutes.js`).
 - Webhook endpoint `/api/payments/webhook` uses raw body verification before JSON parsing for normal routes (`src/app.js`, `src/payments/webhookRoutes.js`).
 - Webhook/payment processing is designed to be idempotent and ownership-safe through payment/booking repository checks.
-- No live Stripe test-mode end-to-end verification is claimed in this README unless separately recorded with real evidence.
+- Live Stripe Test Mode paid Checkout E2E is recorded for production booking `CE6EE1`: a real `cs_test_` Checkout Session, the approved test card, `$79.00` USD, a server-confirmed `paid` state, one payment record with a Stripe PaymentIntent transaction ID, Customer history, and Admin `79.00 USD` paid-only revenue. The paid state is served only from the MongoDB document written by signed webhook processing; the success page never calls Stripe or promotes status. Stripe Dashboard delivery/replay and live expiration were not independently observable, so those checks remain BLOCKED.
 
 ## Seed Data / Demo Database Workflow
 
@@ -302,8 +302,9 @@ These are data/owner-input items, not code defects. Statuses use the workspace u
 | Service technician ownership | 9 of 17 services reference a single orphan technician ref (`6b033d…b1ca`, masked) not present in canonical `user` or legacy `users`. Ownership is **not** fixed. | `PENDING OWNER DECISION` |
 | Missing service categories | Live catalog has only Laptop & PC (5), Smartphone (4), AC (4), Refrigerator (4). TV, Washing Machine, and Electrical are absent — categories are **not** fully populated. | `PENDING OWNER DECISION` |
 | ImgBB image compliance | 16 of 17 services use `images.unsplash.com`; only 1 uses `i.ibb.co`. Compliance is **not** complete; owner-supplied ImgBB URLs/uploads are required. | `PENDING OWNER DECISION` |
-| Stripe Test Mode E2E | Post-fix Checkout, signed webhook delivery, paid state, history/admin revenue, and duplicate-webhook idempotency are **not** verified with live evidence. | `BLOCKED` |
-| Deployment commit SHA | Live URLs are confirmed; the exact deployed commit SHA is **not** yet confirmed by the owner. | `PENDING OWNER DECISION` |
+| Stripe Test Mode paid Checkout E2E | Production booking `CE6EE1` completed through normal Customer/Technician UI: same `cs_test_` Session reused, Checkout showed USD `$79.00`, approved test card paid, success page/server reads showed `Paid`, Customer history showed one paid record with a Stripe PaymentIntent transaction ID, Admin showed one completed payment and `79.00 USD` revenue, and the cancel return page changed no records. | `VERIFIED` |
+| Stripe Dashboard delivery/replay and expiration | Webhook endpoint/subscribed events, delivery log, duplicate-event replay/idempotency, and live Checkout expiration are owner-observable only and were not independently agent-observable; no second booking was created for expiration testing. | `BLOCKED` |
+| Deployment commit SHA | Server SHA owner-confirmed as `5cb06e9fd826e0960a5c6e95b185fce92b2a9f18`; the exact post-fix Vercel Client SHA is still `PENDING OWNER DECISION`, while the deployed Client bundle was observed serving the `/g/pay/` allowlist. | `PENDING OWNER DECISION` |
 
 ## Submission Readiness Checklist
 
@@ -311,16 +312,17 @@ Status labels: IMPLEMENTED (source present), TESTED (automated/mocked evidence),
 
 - [x] IMPLEMENTED — Project purpose/overview, server API responsibilities, repo links, feature list, stack, setup, env variable names (never values), seed/demo instructions, Stripe Test Mode server boundary, and demo account placeholders documented in this README.
 - [x] TESTED — Server source/tests cover seed safety/idempotency, 28-service/7-category coverage, booking status coverage, payment idempotency, role/ownership, and paid-only revenue with mocked/local tests.
+- [x] VERIFIED — Owner-authorized Stripe Test Mode paid Checkout E2E for production booking `CE6EE1` observed the signed-webhook effect through server-authoritative `paid` state, one payment record with a Stripe PaymentIntent transaction ID, Customer history, Admin one-completed-payment/`79.00 USD` revenue summary, and read-only success/cancel return pages.
 - [ ] VERIFIED — Official complete Assignment 9 Category 006 specification/guide files are not present in workspace docs; full official reconciliation remains `PENDING OWNER DECISION`.
-- [ ] OWNER ACTION REQUIRED — Real demo credentials and deployed commit SHA confirmation must be supplied by owner; live Client/Server URLs are confirmed and documented above. No credential is invented here.
-- [ ] OWNER ACTION REQUIRED — Live canonical account counts confirmed by the Phase 47 read-only audit: 7 Customer / 8 Technician / 1 Admin; canonical ObjectIds for seed references and secure credential handoff remain owner-controlled.
+- [x] OWNER ACTION REQUIRED — Real demo credentials must be supplied by owner; live Client/Server URLs and the Server deployed SHA are confirmed and documented above. No credential is invented here.
+- [x] OWNER ACTION REQUIRED — Live canonical account counts confirmed by the Phase 47 read-only audit: 7 Customer / 8 Technician / 1 Admin; canonical ObjectIds for seed references and secure credential handoff remain owner-controlled.
 - [ ] OWNER ACTION REQUIRED — Valid ImgBB URLs for all 28 demo services must be uploaded/provided; current seed URLs are Unsplash placeholders and are not claimed ImgBB-compliant.
-- [ ] BLOCKED — Live Stripe Test Mode E2E (real Checkout, signed webhook delivery, paid state, history/admin revenue, duplicate webhook idempotency) requires owner-controlled live evidence.
+- [ ] BLOCKED — Stripe Dashboard webhook endpoint/subscribed events, delivery log, duplicate-event replay/idempotency, and live Checkout expiration remain owner-controlled; no second booking was created for expiration testing.
 - [x] RESOLVED — Suspicious historical booking/payment records were deleted by the owner; the Phase 47 read-only audit confirmed `bookings=0` and `payments=0`. No cleanup script was executed by the agent.
-- [ ] OWNER ACTION REQUIRED — Production smoke/responsive/error checks, official X handle decision (D7), and secure submission credential/live URL handoff.
+- [ ] OWNER ACTION REQUIRED — Exact post-fix Vercel Client SHA, production smoke/responsive/error checks beyond the payment flow, official X handle decision (D7), and secure submission credential/live URL handoff.
 
 ## Deployment / Production Status
 
-- Live API deployment: https://fxmate-server.vercel.app (owner-confirmed). Deployed commit SHA: `PENDING OWNER DECISION`.
-- Production MongoDB/Stripe/ImgBB/live E2E verification: not claimed here.
+- Live API deployment: https://fxmate-server.vercel.app (owner-confirmed). Deployed commit SHA: `5cb06e9fd826e0960a5c6e95b185fce92b2a9f18` (owner-confirmed; no Server source changed during Phase 50).
+- Production verification: Stripe Test Mode paid Checkout E2E is recorded above. Stripe Dashboard replay/expiration, full production smoke/responsive/error checks, live seed execution, ImgBB migration, and exact post-fix Vercel Client SHA are not claimed here.
 - Any deployment config added later must keep Client and Server independent.
