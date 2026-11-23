@@ -83,7 +83,7 @@ test("Stripe Session parameters use trusted snapshot values and safe metadata", 
   });
 
   assert.equal(params.mode, "payment");
-  assert.deepEqual(params.payment_method_types, ["card"]);
+  assert.equal(Object.hasOwn(params, "payment_method_types"), false);
   assert.equal(params.line_items.length, 1);
   assert.equal(params.line_items[0].quantity, 1);
   assert.equal(params.line_items[0].price_data.currency, "usd");

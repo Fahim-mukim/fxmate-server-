@@ -289,6 +289,8 @@ test("creates one Checkout Session from trusted booking and canonical user data"
   assert.equal(stripe.calls.length, 1);
   const { params, options } = stripe.calls[0];
   assert.equal(options.idempotencyKey, checkoutIdempotencyKey(result.paymentId));
+  assert.equal(params.mode, "payment");
+  assert.equal(Object.hasOwn(params, "payment_method_types"), false);
   assert.equal(params.line_items[0].price_data.unit_amount, 9550);
   assert.equal(params.customer_email, USER.email.toLowerCase());
   assert.deepEqual(params.metadata, {

@@ -115,7 +115,6 @@ export function buildCheckoutSessionParams({ payment, customerEmail, redirectOri
 
   return {
     mode: "payment",
-    payment_method_types: ["card"],
     line_items: [{
       quantity: 1,
       price_data: {

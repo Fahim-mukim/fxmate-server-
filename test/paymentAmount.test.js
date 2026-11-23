@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { dollarsToCents, PAYMENT_AMOUNT_ERROR_CODE } from "../src/payments/amount.js";
 
 test("converts valid positive USD amounts to integer cents", () => {
+  assert.equal(dollarsToCents(95), 9500);
   assert.equal(dollarsToCents(95.5), 9550);
   assert.equal(dollarsToCents(1), 100);
   assert.equal(dollarsToCents(0.01), 1);
@@ -36,4 +37,18 @@ test("rejects amounts that would overflow a safe integer cent value", () => {
   assert.throws(() => dollarsToCents(90071992547409.92), {
     code: PAYMENT_AMOUNT_ERROR_CODE,
   });
+});
+
+test("accepts large finite amounts within safe integer cent boundaries", () => {
+  assert.equal(dollarsToCents(565743), 56574300);
+  assert.equal(dollarsToCents(999999.99), 99999999);
+  assert.equal(dollarsToCents(90071992547409), 9007199254740900);
+});
+
+test("does not mutate the input amount value", () => {
+  const value = 95.5;
+  const original = value;
+  const cents = dollarsToCents(value);
+  assert.equal(cents, 9550);
+  assert.equal(value, original);
 });
