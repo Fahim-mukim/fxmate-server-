@@ -36,6 +36,8 @@ const ALLOWED_LIST_FIELDS = new Set(["status", "page", "limit"]);
 const ALLOWED_ADMIN_LIST_FIELDS = new Set(["status", "paymentStatus", "search", "page", "limit"]);
 const BOOKING_PAYMENT_STATUSES = new Set(Object.values(BOOKING_PAYMENT_STATUS));
 const MAX_BOOKING_SEARCH_LENGTH = 100;
+export const FINAL_AMOUNT_MAX_USD = 5000;
+const FINAL_AMOUNT_DECIMAL_PATTERN = /^\d+(?:\.\d{1,2})?$/;
 
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
@@ -125,10 +127,36 @@ function parsePreferredDate(value) {
   return date;
 }
 
-function parseFinalAmount(value) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw invalidRequest("finalAmount must be a finite positive number.");
+export function parseFinalAmount(value) {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value <= 0 ||
+    value > FINAL_AMOUNT_MAX_USD
+  ) {
+    throw invalidRequest(
+      "finalAmount must be a USD amount greater than 0 and at most 5000 with up to 2 decimal places.",
+    );
   }
+
+  if (!FINAL_AMOUNT_DECIMAL_PATTERN.test(String(value))) {
+    throw invalidRequest(
+      "finalAmount must be a USD amount greater than 0 and at most 5000 with up to 2 decimal places.",
+    );
+  }
+
+  const cents = Math.round(value * 100);
+  if (
+    !Number.isSafeInteger(cents) ||
+    cents <= 0 ||
+    cents > FINAL_AMOUNT_MAX_USD * 100 ||
+    Math.abs(cents - value * 100) > 1e-6
+  ) {
+    throw invalidRequest(
+      "finalAmount must be a USD amount greater than 0 and at most 5000 with up to 2 decimal places.",
+    );
+  }
+
   return value;
 }
 

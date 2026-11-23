@@ -33,7 +33,7 @@ import {
   normalizeBookingId,
 } from "./bookingModel.js";
 import { BOOKING_PAYMENT_STATUS } from "../payments/paymentModel.js";
-import { bookingSearchPattern } from "./bookingInput.js";
+import { bookingSearchPattern, parseFinalAmount } from "./bookingInput.js";
 
 const SERVICE_SNAPSHOT_PROJECTION = Object.freeze({
   _id: 1,
@@ -476,14 +476,9 @@ export function createBookingRepository({
     if (!TECHNICIAN_NEXT_STATUSES.includes(nextStatus)) {
       throw invalidRequest("status is not a supported technician transition.");
     }
+    let validatedFinalAmount;
     if (nextStatus === BOOKING_STATUS.COMPLETED) {
-      if (
-        typeof finalAmount !== "number" ||
-        !Number.isFinite(finalAmount) ||
-        finalAmount <= 0
-      ) {
-        throw invalidRequest("finalAmount must be a finite positive number.");
-      }
+      validatedFinalAmount = parseFinalAmount(finalAmount);
     } else if (finalAmount !== undefined) {
       throw invalidRequest("finalAmount is only accepted when completing a booking.");
     }
@@ -502,7 +497,7 @@ export function createBookingRepository({
 
     const update = terminalUpdate(nextStatus);
     if (nextStatus === BOOKING_STATUS.COMPLETED) {
-      update.$set.finalAmount = finalAmount;
+      update.$set.finalAmount = validatedFinalAmount;
     }
 
     return run(async (collection) => {

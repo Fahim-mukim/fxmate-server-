@@ -839,7 +839,7 @@ test("technician transitions are enforced and completed requires a valid final a
     });
     assert.equal(missingAmount.response.status, 400);
 
-    for (const badAmount of [0, -5, "95", null, Infinity]) {
+    for (const badAmount of [0, -5, "95", null, Infinity, -0.01, 5000.01, 565743, 95.555, "5000", NaN]) {
       const result = await request(baseUrl, `/api/bookings/${IDS.bookingRequested}/status`, {
         method: "PATCH",
         token: TOKENS.technician,
@@ -847,6 +847,8 @@ test("technician transitions are enforced and completed requires a valid final a
       });
       assert.equal(result.response.status, 400, String(badAmount));
     }
+    assert.equal(bookingCollection.documents[0].status, "in-progress");
+    assert.equal(bookingCollection.documents[0].finalAmount, null);
 
     const completed = await request(baseUrl, `/api/bookings/${IDS.bookingRequested}/status`, {
       method: "PATCH",

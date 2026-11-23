@@ -9,9 +9,15 @@ const CUSTOMER_ID = "507f1f77bcf86cd7994390c1";
 const TECHNICIAN_ID = "507f1f77bcf86cd7994390a1";
 
 class FakeCollection {
-  constructor({ existingIndexes = [], findOneResult = null, insertError = null } = {}) {
+  constructor({
+    existingIndexes = [],
+    findOneResult = null,
+    findOneAndUpdateResult,
+    insertError = null,
+  } = {}) {
     this.existingIndexes = existingIndexes.map((index) => ({ ...index }));
     this.findOneResult = findOneResult;
+    this.findOneAndUpdateResult = findOneAndUpdateResult;
     this.insertError = insertError;
     this.calls = {
       indexes: 0,
@@ -51,6 +57,7 @@ class FakeCollection {
 
   async findOneAndUpdate(filter, update, options) {
     this.calls.findOneAndUpdate.push({ filter, update, options });
+    if (this.findOneAndUpdateResult !== undefined) return this.findOneAndUpdateResult;
     return { value: { _id: new ObjectId(SERVICE_ID), status: update.$set.status } };
   }
 
@@ -254,13 +261,35 @@ test("completed transitions require a finite positive persisted final amount", a
     database: fakeDatabase({ bookings, services: new FakeCollection() }),
   });
 
-  for (const finalAmount of [0, -1, "120", Number.NaN]) {
+  for (const finalAmount of [0, -1, -0.01, "120", Number.NaN, Infinity, -Infinity, 5000.01, 565743, 95.555]) {
     await assert.rejects(
       () => repository.updateStatus(SERVICE_ID, TECHNICIAN_ID, "completed", finalAmount),
       (error) => error.status === 400 && error.code === "VALIDATION_FAILED",
     );
   }
   assert.equal(bookings.calls.findOneAndUpdate.length, 0);
+});
+
+test("completed transitions accept the owner-approved USD maximum boundary", async () => {
+  const bookingId = new ObjectId(SERVICE_ID);
+  const bookings = new FakeCollection({
+    findOneResult: { _id: bookingId, status: "in-progress" },
+    findOneAndUpdateResult: {
+      value: {
+        _id: bookingId,
+        status: "completed",
+        finalAmount: 5000,
+        paymentStatus: "unpaid",
+      },
+    },
+  });
+  const repository = createBookingRepository({
+    database: fakeDatabase({ bookings, services: new FakeCollection() }),
+  });
+
+  const updated = await repository.updateStatus(SERVICE_ID, TECHNICIAN_ID, "completed", 5000);
+  assert.equal(updated.finalAmount, 5000);
+  assert.equal(bookings.calls.findOneAndUpdate[0].update.$set.finalAmount, 5000);
 });
 
 test("booking repository returns a safe 503 when the database is unavailable", async () => {

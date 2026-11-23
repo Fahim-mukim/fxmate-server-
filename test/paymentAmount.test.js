@@ -10,6 +10,7 @@ test("converts valid positive USD amounts to integer cents", () => {
   assert.equal(dollarsToCents(19.99), 1999);
   assert.equal(dollarsToCents(0.1), 10);
   assert.equal(dollarsToCents(100), 10000);
+  assert.equal(dollarsToCents(5000), 500000);
 });
 
 test("rejects non-positive, non-finite, and non-number values", () => {
