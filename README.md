@@ -5,6 +5,7 @@ FixMate Server is the independent Express/MongoDB backend for FixMate, a role-ba
 ## Live API URL
 
 - Live API URL: `PENDING OWNER DEPLOYMENT` (no live deployment is claimed by this repository)
+- Live Client URL: `PENDING OWNER DEPLOYMENT` (owner-managed; see Client README)
 
 ## Repository Links
 
@@ -119,9 +120,12 @@ The seed workflow is implemented by `scripts/seed-demo.js` and `src/seed/demoSee
 
 ### Expected seeded records
 
-- 12 approved services across all official categories: Smartphone, Laptop & PC, AC, Refrigerator, TV, Washing Machine, Electrical.
-- 6 realistic bookings covering several valid statuses: requested, accepted, in-progress, completed, cancelled, rejected.
+- 28 approved services: 4 per category across all 7 official categories (Smartphone, Laptop & PC, AC, Refrigerator, TV, Washing Machine, Electrical).
+- Demo-only titles, descriptions, areas, durations, and prices are safe non-production placeholders for demonstration; no live marketplace claim is made.
+- Existing stable seed service IDs/records are preserved where possible; missing category records are added by deterministic upsert.
+- 6 realistic bookings covering valid statuses: requested, accepted, in-progress, completed, cancelled, rejected (includes all required target statuses requested/accepted/rejected/in-progress/completed).
 - Bookings are schema-valid direct seed records; terminal records do not include `activeBookingKey`, active records do.
+- Completed seed booking has `finalAmount` and `paymentStatus: "unpaid"`; no booking is marked paid without a real verified payment workflow.
 
 ### Required existing users
 
@@ -129,6 +133,30 @@ Because FixMate uses Better Auth for authentication, this seed script does **not
 
 - At least 2 existing users with role `technician`.
 - 1 existing user with role `customer`.
+
+**Technician slot mapping (deterministic seed assignment):**
+
+- `--technician-id` #1 (techA slot): assigned all Laptop & PC services and a balanced share of other categories. Owner-reported demo mapping: this should be the Istiak technician account.
+- `--technician-id` #2 (techB slot): assigned remaining services. Owner-reported demo mapping: this should be the Nayim technician account.
+
+This corrects the owner-reported Laptop technician assignment issue at the seed-data level. Do not invent identities; pass the actual canonical `user` IDs for the intended accounts when running in a safe non-production demo database.
+
+### ImgBB image compliance (owner action required)
+
+- The official ImgBB guide is not present in the workspace docs; exact assignment-required ImgBB URL format cannot be fully confirmed here.
+- Current seed service images use Unsplash HTTPS URLs (`images.unsplash.com`) for realistic demo placeholders. **These are not ImgBB-hosted URLs and are not claimed as ImgBB-compliant.**
+- The server/client upload validation allows trusted ImgBB hosts (`i.ibb.co`, `i.imgbb.com`) for real upload flows; seed data has not been migrated to ImgBB because no valid ImgBB URLs were available and no uploads were performed.
+- Do not fabricate ImgBB URLs. Do not upload using production credentials. Do not expose ImgBB API keys.
+
+| Service category | Seed services | Current image status | Required owner action | Safe upload workflow |
+|---|---:|---|---|---|
+| Smartphone | 4 | Unsplash placeholder URL (not ImgBB) | Provide/upload valid ImgBB image per service; replace URL in safe non-prod seed/update workflow | Upload via approved server-mediated ImgBB flow or owner-controlled ImgBB upload; copy returned `i.ibb.co`/`i.imgbb.com` HTTPS URL; update seed record by stable seed `_id`; run seed dry-run then apply in demo DB only |
+| Laptop & PC | 4 | Unsplash placeholder URL (not ImgBB) | Same as above | Same as above |
+| AC | 4 | Unsplash placeholder URL (not ImgBB) | Same as above | Same as above |
+| Refrigerator | 4 | Unsplash placeholder URL (not ImgBB) | Same as above | Same as above |
+| TV | 4 | Unsplash placeholder URL (not ImgBB) | Same as above | Same as above |
+| Washing Machine | 4 | Unsplash placeholder URL (not ImgBB) | Same as above | Same as above |
+| Electrical | 4 | Unsplash placeholder URL (not ImgBB) | Same as above | Same as above |
 
 ### Usage
 
@@ -155,22 +183,44 @@ npm run seed:demo -- --apply --confirm-seed --database-name=fixmate_demo --techn
 
 If cleanup is needed, remove only explicitly identified seed records, for example by `seedTag: "fixmate-demo-seed-v1"` in a deliberate manual/admin DB operation against the demo database. Do not run broad collection deletes on shared or production databases.
 
-## Demo Account Setup
+## Demo Account Setup / Readiness
 
-Do not commit real credentials. Use placeholders and owner-controlled setup:
+Do not commit real credentials. Use placeholders and owner-controlled setup.
 
-| Role | Email | Password | Setup |
-|---|---|---|---|
-| Customer | `<customer-demo-email>` | `<owner-set-password>` | Register through the Client/Better Auth flow, then confirm role is `customer` in canonical `user` collection if needed. |
-| Technician | `<technician-demo-email-1>` | `<owner-set-password>` | Register through the Client/Better Auth flow and provision technician role through the approved owner-controlled process/admin workflow as applicable. |
-| Technician | `<technician-demo-email-2>` | `<owner-set-password>` | Register through the Client/Better Auth flow and provision technician role through the approved owner-controlled process/admin workflow as applicable. |
-| Admin | `<admin-demo-email>` | `<owner-set-password>` | Manual owner-controlled provisioning only. Do not auto-seed Admin credentials. |
+| Role | Minimum for demo | Email | Password | Setup |
+|---|---:|---|---|---|
+| Customer | 5 (owner plan) | `<customer-demo-email-{1..5}>` | `<owner-set-password>` | Register through Client/Better Auth flow; verify canonical `user.role=customer`. |
+| Technician | 4 (owner plan) | `<technician-demo-email-{1..4}>` | `<owner-set-password>` | Register through Client/Better Auth flow; provision/verify `user.role=technician` through approved owner-controlled/admin workflow. |
+| Admin | 1 | `<admin-demo-email>` | `<owner-set-password>` | Manual owner-controlled provisioning only. Do not auto-seed Admin credentials. |
+
+**Account-readiness checklist (owner action required, no accounts created by agent):**
+
+- [ ] Create/verify 5 Customer accounts through Better Auth (no passwords/PII in repo).
+- [ ] Create/verify 4 Technician accounts through Better Auth; confirm canonical role is `technician`.
+- [ ] Confirm Admin account exists and role is `admin` (manual owner-controlled).
+- [ ] Capture canonical `user` ObjectIds for 2 technician accounts used by demo seed (techA/Laptop specialist = owner-reported Istiak; techB = owner-reported Nayim) and 1 customer account used by demo booking seed.
+- [ ] Run seed demo in a safe non-production demo database only after owner review (`--dry-run` first, then `--apply --confirm-seed`).
+- [ ] Verify seeded services/bookings reference the intended existing users; verify no unrelated records overwritten.
+- [ ] Do not mark demo accounts or seeded demo data as live/working without real environment evidence.
 
 Notes:
 
-- Admin provisioning remains deliberate and manual/owner-controlled; see root `AUTH_TEST_ENVIRONMENT.md` for the manual provisioning workflow and environment assumptions.
+- Admin provisioning remains deliberate and manual/owner-controlled; see root `AUTH_TEST_ENVIRONMENT.md`.
 - Seed script requires existing Technician/Customer IDs and does not create login-capable accounts.
-- Do not mark demo accounts as live/working until actually created and tested in the intended environment.
+
+## Submission Readiness Checklist
+
+Status labels: IMPLEMENTED (source present), TESTED (automated/mocked evidence), VERIFIED (review against authoritative owner/live evidence), OWNER ACTION REQUIRED (owner-controlled task), BLOCKED (missing source/action prevents completion).
+
+- [x] IMPLEMENTED — Project purpose/overview, server API responsibilities, repo links, feature list, stack, setup, env variable names (never values), seed/demo instructions, Stripe Test Mode server boundary, and demo account placeholders documented in this README.
+- [x] TESTED — Server source/tests cover seed safety/idempotency, 28-service/7-category coverage, booking status coverage, payment idempotency, role/ownership, and paid-only revenue with mocked/local tests.
+- [ ] VERIFIED — Official complete Assignment 9 Category 006 specification/guide files are not present in workspace docs; full official reconciliation remains `PENDING OWNER DECISION`.
+- [ ] OWNER ACTION REQUIRED — Live Client URL, Server/API URL, real demo credentials, and deployment SHA confirmation must be supplied by owner; no live URL/credential is invented here.
+- [ ] OWNER ACTION REQUIRED — 5 Customer / 4 Technician / 1 Admin accounts and canonical ObjectIds for seed references must be created/verified in intended environment.
+- [ ] OWNER ACTION REQUIRED — Valid ImgBB URLs for all 28 demo services must be uploaded/provided; current seed URLs are Unsplash placeholders and are not claimed ImgBB-compliant.
+- [ ] BLOCKED — Live Stripe Test Mode E2E (real Checkout, signed webhook delivery, paid state, history/admin revenue, duplicate webhook idempotency) requires owner-controlled live evidence.
+- [ ] OWNER ACTION REQUIRED — Suspicious historical booking/payment remediation requires owner review, correct amount confirmation, and explicit authorization before the guarded Phase 41 script is applied.
+- [ ] OWNER ACTION REQUIRED — Production smoke/responsive/error checks, official X handle decision (D7), and secure submission credential/live URL handoff.
 
 ## Deployment / Production Status
 

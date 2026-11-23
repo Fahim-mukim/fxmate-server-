@@ -32,6 +32,22 @@ export const SEED_OBJECT_IDS = Object.freeze({
     tvSound: "71eeed00000000000000000a",
     washerDrain: "71eeed00000000000000000b",
     electricalSafety: "71eeed00000000000000000c",
+    smartphoneChargingPort: "71eeed00000000000000000d",
+    smartphoneCamera: "71eeed00000000000000000e",
+    laptopKeyboard: "71eeed00000000000000000f",
+    laptopDisplay: "71eeed000000000000000010",
+    acInstallation: "71eeed000000000000000011",
+    acThermostat: "71eeed000000000000000012",
+    fridgeDoorSeal: "71eeed000000000000000013",
+    fridgeIcemaker: "71eeed000000000000000014",
+    tvPowerBoard: "71eeed000000000000000015",
+    tvMountSetup: "71eeed000000000000000016",
+    washerVibration: "71eeed000000000000000017",
+    washerInletValve: "71eeed000000000000000018",
+    washerControlPanel: "71eeed000000000000000019",
+    electricalFanInstall: "71eeed00000000000000001a",
+    electricalBreaker: "71eeed00000000000000001b",
+    electricalLighting: "71eeed00000000000000001c",
   }),
   bookings: Object.freeze({
     requested: "71eeed000000000000000101",
@@ -101,19 +117,52 @@ export function buildSeedServiceDocuments({ technicians, now = new Date("2026-11
   }
   const [techA, techB] = technicians.map(normalizeTechnician);
 
+  // Technician slot mapping (owner-confirmed demo assignment):
+  // - techA: Laptop & PC specialist slot (owner-reported Istiak in demo data). All Laptop & PC services use techA.
+  // - techB: second demo technician slot (owner-reported Nayim in demo data).
+  // Seed script receives IDs at runtime; it does not invent identities. Owner must supply correct technician IDs.
   const defs = [
+    // Smartphone (4)
     { key: "smartphoneScreen", tech: techA, title: "Smartphone Screen Replacement", category: "Smartphone", description: "Cracked screen diagnosis, OEM-grade replacement, and touch calibration for common smartphone models.", image: "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=1200&q=80", basePrice: 79, estimatedDuration: "1-2 hours", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Mirpur" },
     { key: "smartphoneBattery", tech: techB, title: "Smartphone Battery Health Repair", category: "Smartphone", description: "Battery health check, safe replacement, charging-port inspection, and post-repair power test.", image: "https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=1200&q=80", basePrice: 49, estimatedDuration: "45-90 minutes", serviceMode: "Home Visit", serviceArea: "Dhaka - Dhanmondi" },
+    { key: "smartphoneChargingPort", tech: techA, title: "Smartphone Charging Port Repair", category: "Smartphone", description: "Charging port cleaning, connector replacement when needed, and power delivery testing for reliable charging.", image: "https://images.unsplash.com/photo-1580910051074-3eb694886505?auto=format&fit=crop&w=1200&q=80", basePrice: 39, estimatedDuration: "45-60 minutes", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Mirpur" },
+    { key: "smartphoneCamera", tech: techB, title: "Smartphone Camera Lens Service", category: "Smartphone", description: "Rear/front camera lens inspection, module cleaning or replacement, and focus/image quality verification.", image: "https://images.unsplash.com/photo-1512054502232-10a0a035d672?auto=format&fit=crop&w=1200&q=80", basePrice: 59, estimatedDuration: "1-2 hours", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Dhanmondi" },
+
+    // Laptop & PC (4) - all assigned to techA (Laptop & PC specialist / Istiak demo slot)
     { key: "laptopSsd", tech: techA, title: "Laptop SSD Upgrade & Data Migration", category: "Laptop & PC", description: "SSD compatibility check, installation, data migration, and boot performance verification for laptops and desktops.", image: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=1200&q=80", basePrice: 109, estimatedDuration: "2-3 hours", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Uttara" },
-    { key: "laptopThermal", tech: techB, title: "Laptop Thermal Cleaning Service", category: "Laptop & PC", description: "Internal dust cleaning, thermal paste refresh, fan inspection, and temperature stability check.", image: "https://images.unsplash.com/photo-1588702547919-26089e690ecc?auto=format&fit=crop&w=1200&q=80", basePrice: 59, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Banani" },
+    { key: "laptopThermal", tech: techA, title: "Laptop Thermal Cleaning Service", category: "Laptop & PC", description: "Internal dust cleaning, thermal paste refresh, fan inspection, and temperature stability check.", image: "https://images.unsplash.com/photo-1588702547919-26089e690ecc?auto=format&fit=crop&w=1200&q=80", basePrice: 59, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Banani" },
+    { key: "laptopKeyboard", tech: techA, title: "Laptop Keyboard Replacement", category: "Laptop & PC", description: "Keyboard diagnosis, compatible replacement, and key response testing for laptop input issues.", image: "https://images.unsplash.com/photo-1525547719571-a2d4ac8945e2?auto=format&fit=crop&w=1200&q=80", basePrice: 69, estimatedDuration: "1-2 hours", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Uttara" },
+    { key: "laptopDisplay", tech: techA, title: "Laptop Display & Hinge Repair", category: "Laptop & PC", description: "Screen flicker diagnosis, hinge inspection, display cable check, and panel replacement planning where needed.", image: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1200&q=80", basePrice: 129, estimatedDuration: "2-4 hours", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Uttara" },
+
+    // AC (4)
     { key: "acService", tech: techA, title: "AC Deep Cleaning & Performance Tune-Up", category: "AC", description: "Indoor unit cleaning, filter wash, drain line check, and cooling performance test for split AC units.", image: "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=1200&q=80", basePrice: 69, estimatedDuration: "2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Gulshan" },
     { key: "acLeak", tech: techB, title: "AC Refrigerant Leak Diagnosis", category: "AC", description: "Leak inspection, pressure testing, refrigerant assessment, and repair recommendation for cooling loss issues.", image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=1200&q=80", basePrice: 89, estimatedDuration: "2-4 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Mohammadpur" },
+    { key: "acInstallation", tech: techB, title: "AC Installation & Mounting Check", category: "AC", description: "Split AC mounting inspection, basic installation setup, drainage alignment, and startup cooling verification.", image: "https://images.unsplash.com/photo-1631545806609-35d4d6c871b1?auto=format&fit=crop&w=1200&q=80", basePrice: 119, estimatedDuration: "3-4 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Gulshan" },
+    { key: "acThermostat", tech: techA, title: "AC Thermostat & Sensor Repair", category: "AC", description: "Thermostat calibration, sensor inspection, and control response testing for inconsistent AC temperature behavior.", image: "https://images.unsplash.com/photo-1611095973362-88e8e2557e58?auto=format&fit=crop&w=1200&q=80", basePrice: 79, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Mohammadpur" },
+
+    // Refrigerator (4)
     { key: "fridgeCooling", tech: techA, title: "Refrigerator Cooling Troubleshooting", category: "Refrigerator", description: "Cooling diagnosis, thermostat check, airflow inspection, and practical repair plan for refrigerator temperature issues.", image: "https://images.unsplash.com/photo-1584568694244-14fbdf83bd30?auto=format&fit=crop&w=1200&q=80", basePrice: 75, estimatedDuration: "1-3 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Badda" },
     { key: "fridgeCompressor", tech: techB, title: "Refrigerator Compressor Health Check", category: "Refrigerator", description: "Compressor and relay inspection, electrical safety check, and cooling recovery testing.", image: "https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?auto=format&fit=crop&w=1200&q=80", basePrice: 95, estimatedDuration: "2-3 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Khilgaon" },
+    { key: "fridgeDoorSeal", tech: techA, title: "Refrigerator Door Seal Replacement", category: "Refrigerator", description: "Door gasket inspection, seal replacement, and temperature retention check to reduce cooling loss.", image: "https://images.unsplash.com/photo-1536353284924-9220c464e262?auto=format&fit=crop&w=1200&q=80", basePrice: 55, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Badda" },
+    { key: "fridgeIcemaker", tech: techB, title: "Refrigerator Ice Maker Repair", category: "Refrigerator", description: "Ice maker water line inspection, component diagnosis, and operation test for ice production issues.", image: "https://images.unsplash.com/photo-1588854337115-1c67d9247e4d?auto=format&fit=crop&w=1200&q=80", basePrice: 85, estimatedDuration: "1-3 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Khilgaon" },
+
+    // TV (4)
     { key: "tvDisplay", tech: techA, title: "TV Display & Backlight Diagnosis", category: "TV", description: "Screen flicker diagnosis, backlight inspection, and display panel assessment for LED/LCD televisions.", image: "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?auto=format&fit=crop&w=1200&q=80", basePrice: 85, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Rampura" },
     { key: "tvSound", tech: techB, title: "TV Audio & Connectivity Repair", category: "TV", description: "Speaker output testing, HDMI/audio port inspection, and connectivity troubleshooting for smart TVs.", image: "https://images.unsplash.com/photo-1461151304267-38535e780c79?auto=format&fit=crop&w=1200&q=80", basePrice: 65, estimatedDuration: "1-2 hours", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Motijheel" },
+    { key: "tvPowerBoard", tech: techB, title: "TV Power Board Diagnosis", category: "TV", description: "Power supply inspection, startup fault diagnosis, and safe board-level troubleshooting for TVs that won't turn on.", image: "https://images.unsplash.com/photo-1567690187548-f07b1d7bf5a9?auto=format&fit=crop&w=1200&q=80", basePrice: 99, estimatedDuration: "2-3 hours", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Rampura" },
+    { key: "tvMountSetup", tech: techA, title: "TV Wall Mount & Setup Service", category: "TV", description: "Wall mount installation check, secure TV mounting, cable management, and basic input/setup verification.", image: "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?auto=format&fit=crop&w=1200&q=80", basePrice: 70, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Motijheel" },
+
+    // Washing Machine (4)
     { key: "washerDrain", tech: techA, title: "Washing Machine Drain & Pump Repair", category: "Washing Machine", description: "Drain blockage removal, pump inspection, hose check, and spin-cycle test for front and top load washers.", image: "https://images.unsplash.com/photo-1626806787461-102c1bfaaea1?auto=format&fit=crop&w=1200&q=80", basePrice: 72, estimatedDuration: "1-3 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Malibagh" },
+    { key: "washerVibration", tech: techB, title: "Washing Machine Vibration & Balance Fix", category: "Washing Machine", description: "Leveling check, drum balance inspection, shock absorber assessment, and test cycle for excessive vibration.", image: "https://images.unsplash.com/photo-1604335399105-a0c585fd81a1?auto=format&fit=crop&w=1200&q=80", basePrice: 68, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Malibagh" },
+    { key: "washerInletValve", tech: techA, title: "Washing Machine Water Inlet Repair", category: "Washing Machine", description: "Inlet valve inspection, hose/filter cleaning, and water flow testing for filling or leakage issues.", image: "https://images.unsplash.com/photo-1610557892470-55d9e80c0bce?auto=format&fit=crop&w=1200&q=80", basePrice: 64, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Banasree" },
+    { key: "washerControlPanel", tech: techB, title: "Washing Machine Control Panel Diagnosis", category: "Washing Machine", description: "Control panel and sensor diagnosis, error code check, and operational testing for cycle control problems.", image: "https://images.unsplash.com/photo-1582735689369-4fe89db7114c?auto=format&fit=crop&w=1200&q=80", basePrice: 79, estimatedDuration: "1-3 hours", serviceMode: "Shop Drop-off", serviceArea: "Dhaka - Banasree" },
+
+    // Electrical (4)
     { key: "electricalSafety", tech: techB, title: "Home Electrical Outlet Safety Inspection", category: "Electrical", description: "Outlet and switch inspection, basic wiring safety checks, and fault isolation for common household electrical issues.", image: "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?auto=format&fit=crop&w=1200&q=80", basePrice: 55, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Tejgaon" },
+    { key: "electricalFanInstall", tech: techA, title: "Ceiling Fan Installation & Wiring", category: "Electrical", description: "Ceiling fan mounting, wiring connection check, switch test, and safe operation verification.", image: "https://images.unsplash.com/photo-1616046229478-9901c5536a45?auto=format&fit=crop&w=1200&q=80", basePrice: 60, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Tejgaon" },
+    { key: "electricalBreaker", tech: techB, title: "Circuit Breaker & Trip Diagnosis", category: "Electrical", description: "Breaker panel inspection, trip-cause diagnosis, load check, and safety recommendations for recurring electrical trips.", image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=1200&q=80", basePrice: 75, estimatedDuration: "1-3 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Mirpur" },
+    { key: "electricalLighting", tech: techA, title: "Indoor Lighting Fixture Repair", category: "Electrical", description: "Light fixture inspection, switch/wiring diagnosis, fixture replacement support, and illumination testing.", image: "https://images.unsplash.com/photo-1565814329452-e1efa11c5b89?auto=format&fit=crop&w=1200&q=80", basePrice: 50, estimatedDuration: "1-2 hours", serviceMode: "Home Visit", serviceArea: "Dhaka - Dhanmondi" },
   ];
 
   return defs.map((def, index) => ({
@@ -204,10 +253,11 @@ export function buildSeedBookingDocuments({ customer, services, now = new Date("
 
 export function validateSeedDocuments({ services, bookings } = {}) {
   const errors = [];
-  if (!Array.isArray(services) || services.length < 12) errors.push("At least 12 services are required.");
+  if (!Array.isArray(services) || services.length < 28) errors.push("At least 28 services are required.");
   if (!Array.isArray(bookings) || bookings.length < 1) errors.push("At least 1 booking is required.");
 
   const categories = new Set();
+  const categoryCounts = new Map();
   for (const service of services || []) {
     if (!service?._id) errors.push("Service missing _id.");
     if (!SERVICE_CATEGORIES.includes(service?.category)) errors.push(`Invalid service category: ${service?.category}`);
@@ -219,9 +269,14 @@ export function validateSeedDocuments({ services, bookings } = {}) {
     if (!service?.[SERVICE_OWNER_FIELD]) errors.push(`Missing technicianId: ${service?.title}`);
     if (service?.seedTag !== SEED_TAG) errors.push(`Missing seedTag: ${service?.title}`);
     categories.add(service?.category);
+    if (typeof service?.category === "string") {
+      categoryCounts.set(service.category, (categoryCounts.get(service.category) || 0) + 1);
+    }
   }
   for (const category of SERVICE_CATEGORIES) {
     if (!categories.has(category)) errors.push(`Missing category coverage: ${category}`);
+    const count = categoryCounts.get(category) || 0;
+    if (count < 4) errors.push(`Category ${category} must have at least 4 services; found ${count}.`);
   }
 
   const serviceIds = new Set((services || []).map((s) => normalizeId(s._id)));
@@ -237,9 +292,18 @@ export function validateSeedDocuments({ services, bookings } = {}) {
     if (booking?.status === BOOKING_STATUS.COMPLETED && !(booking?.finalAmount > 0)) errors.push(`Completed booking missing finalAmount: ${normalizeId(booking?._id)}`);
     statuses.add(booking?.status);
   }
-  if (statuses.size < 3) errors.push("Bookings must cover several valid statuses.");
+  const requiredStatuses = [
+    BOOKING_STATUS.REQUESTED,
+    BOOKING_STATUS.ACCEPTED,
+    BOOKING_STATUS.REJECTED,
+    BOOKING_STATUS.IN_PROGRESS,
+    BOOKING_STATUS.COMPLETED,
+  ];
+  for (const status of requiredStatuses) {
+    if (!statuses.has(status)) errors.push(`Missing booking status coverage: ${status}`);
+  }
 
-  return { ok: errors.length === 0, errors, categories: [...categories], statuses: [...statuses] };
+  return { ok: errors.length === 0, errors, categories: [...categories], statuses: [...statuses], categoryCounts: Object.fromEntries(categoryCounts) };
 }
 
 function idFilter(id) {
