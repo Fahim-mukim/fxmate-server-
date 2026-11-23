@@ -57,6 +57,7 @@ npm run dev
 - `npm run migrate:users` - legacy users-to-canonical-user migration script (explicit/manual; inspect script before use).
 - `npm run seed:demo` - explicit, opt-in demo seed workflow (see Seed Data section).
 - `npm run remediate:booking-final-amount` - guarded one-time maintenance script for correcting a single completed, unpaid booking `finalAmount`; dry-run by default, `--apply` required, strict preconditions, no production data changes during normal development/tests.
+- `npm run cleanup:bookings-payments` - guarded booking/payment cleanup preparation script. **Dry-run by default; do not execute apply without owner review, backup, and explicit confirmation.**
 
 ## Required Server Environment Variable Names
 
@@ -182,6 +183,89 @@ npm run seed:demo -- --apply --confirm-seed --database-name=fixmate_demo --techn
 ### Cleanup
 
 If cleanup is needed, remove only explicitly identified seed records, for example by `seedTag: "fixmate-demo-seed-v1"` in a deliberate manual/admin DB operation against the demo database. Do not run broad collection deletes on shared or production databases.
+
+## Production Booking/Payment Cleanup Preparation (Guarded, Not Executed)
+
+**Status: OWNER ACTION REQUIRED / NOT EXECUTED.** This section documents a reviewed cleanup tool only. No production deletion has been performed.
+
+### Purpose and exact deletion scope
+
+- Purpose: remove existing booking and payment records so booking/payment demo workflow can restart from a clean state, while preserving users, services, and BetterAuth internal data.
+- Target collections (only): `bookings`, `payments`.
+- Preserved collections (never deleted/modified/recreated by this script): `user`, `services`, `account`, `session`, `verification`, `jwks`, `users` (legacy).
+- No `dropDatabase`, no collection drop, no broad delete outside `bookings` and `payments`. No Stripe API calls. No service ownership remap.
+
+### Safety conditions and guards
+
+- Default mode is dry-run.
+- Apply requires both `--apply` and exact confirmation flag `--confirm-booking-payment-cleanup`.
+- Database name must be exactly `fixmate`; URI database name and connected `db.databaseName` are both checked.
+- `NODE_ENV=production` requires explicit `--allow-production-cleanup` for any run (including dry-run). Non-production runs do not require that flag.
+- Before deletion, script reports counts and validates state. It aborts if any:
+  - paid booking record (`paymentStatus=paid`) or booking `paidByPaymentId` marker exists;
+  - paid payment record or `paidBookingKey` marker exists;
+  - active payment reservation (`activePaymentKey`) or `checkout_pending`/`awaiting_payment`/`processing` payment exists;
+  - unexpected/unknown booking or payment status is detected;
+  - inconsistent paid/active marker is detected;
+  - **any stored Stripe reference exists** in target payment records: `stripeCheckoutSessionId`, `stripePaymentIntentId`, or `stripeEventId` (including historical references).
+- **Transaction-only apply:** apply uses MongoDB transaction semantics and aborts before deleting anything if transactions are unsupported/unavailable. There is **no non-atomic fallback** and no alternative non-transactional production flag.
+- **Snapshot drift protection:** the script captures a preflight snapshot (counts, IDs, guarded status/marker/Stripe-reference fields). Immediately before deletion, inside the same transaction, it re-reads target state and aborts if any count, ID, status, payment marker, or Stripe reference changed, or if any new document appears. Deletion targets only validated snapshot IDs (`_id: { $in: [...] }`).
+- If the script cannot guarantee safe transaction/snapshot behavior, it fails closed and deletes nothing.
+
+### Required backup and maintenance controls (owner-controlled)
+
+1. Take a verified MongoDB backup/snapshot of the `fixmate` database before any apply run. Record backup location, timestamp, operator, and restore procedure outside this repo.
+2. Confirm backup restore has been tested in a safe environment where possible.
+3. Establish an owner-controlled maintenance/write freeze so no booking/payment writes can occur during validation/apply. The script does **not** verify backup evidence or maintenance freeze.
+4. Do not proceed without owner-reviewed backup evidence, freeze confirmation, and explicit approval.
+
+### Dry-run command (review only)
+
+```bash
+cd fixmate-server
+# Non-production dry-run (NODE_ENV!=production)
+node scripts/cleanup-production-bookings-payments.js --database-name=fixmate
+```
+
+Production dry-run format (still no deletion; requires explicit production allow flag):
+
+```bash
+cd fixmate-server
+# OWNER-APPROVED PRODUCTION DRY-RUN ONLY - DO NOT RUN BY DEFAULT
+node scripts/cleanup-production-bookings-payments.js --allow-production-cleanup --database-name=fixmate
+```
+
+Expected dry-run behavior: connects only after URI/DB-name guards pass, reads only target collections, prints JSON report with precondition checks/snapshot counts, and performs no deletions.
+
+### Apply command format (DO NOT RUN without owner approval)
+
+```bash
+cd fixmate-server
+# DO NOT RUN without owner-reviewed backup, maintenance/write freeze, and explicit approval.
+node scripts/cleanup-production-bookings-payments.js --apply --confirm-booking-payment-cleanup --database-name=fixmate
+```
+
+For approved production use only when all safety conditions are satisfied:
+
+```bash
+cd fixmate-server
+# OWNER-APPROVED PRODUCTION ONLY - DO NOT RUN BY DEFAULT
+node scripts/cleanup-production-bookings-payments.js --apply --confirm-booking-payment-cleanup --allow-production-cleanup --database-name=fixmate
+```
+
+### Rollback limitations
+
+- No automatic rollback is provided after a committed deletion.
+- Apply is transaction-based for `bookings` and `payments`; if the transaction cannot be started/committed safely, the script aborts fail-closed. No non-atomic fallback is attempted.
+- Deleted booking/payment documents cannot be restored by this script; recovery depends on owner-controlled backup/snapshot restore.
+- Stripe historical records are not deleted/modified by this script.
+- Production transaction support is not assumed by this script; unsupported/unavailable transaction capability causes fail-closed abort.
+
+### Expected post-cleanup verification
+
+- Script report shows `applied=true`, `blocked=false`, `deletion.mode="transaction"`, deletion counts match snapshot counts, and post-check counts are zero for `bookings` and `payments`.
+- Manual read-only verification: `bookings` count 0, `payments` count 0; `user` and `services` counts unchanged; BetterAuth collections unchanged.
+- Application smoke check (owner-controlled, after maintenance window): services/users still load; booking/payment flows can start fresh; no paid/payment history artifacts remain.
 
 ## Demo Account Setup / Readiness
 
