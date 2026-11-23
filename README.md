@@ -4,8 +4,9 @@ FixMate Server is the independent Express/MongoDB backend for FixMate, a role-ba
 
 ## Live API URL
 
-- Live API URL: `PENDING OWNER DEPLOYMENT` (no live deployment is claimed by this repository)
-- Live Client URL: `PENDING OWNER DEPLOYMENT` (owner-managed; see Client README)
+- Live API URL: https://fxmate-server.vercel.app (owner-confirmed)
+- Live Client URL: https://fixmate-client-snowy.vercel.app (owner-confirmed; see Client README)
+- Deployed commit SHA: `PENDING OWNER DECISION` (owner to confirm the exact deployed SHA)
 
 ## Repository Links
 
@@ -186,7 +187,7 @@ If cleanup is needed, remove only explicitly identified seed records, for exampl
 
 ## Production Booking/Payment Cleanup Preparation (Guarded, Not Executed)
 
-**Status: OWNER ACTION REQUIRED / NOT EXECUTED.** This section documents a reviewed cleanup tool only. No production deletion has been performed.
+**Status: TOOL NOT EXECUTED BY AGENT / CLEANUP COMPLETED BY OWNER.** This section documents a reviewed cleanup tool that was never run by the agent. The owner manually deleted all `bookings` and `payments` documents; the Phase 47 read-only audit confirmed both collections contain zero documents. Users, services, and BetterAuth internal collections were preserved.
 
 ### Purpose and exact deletion scope
 
@@ -271,17 +272,17 @@ node scripts/cleanup-production-bookings-payments.js --apply --confirm-booking-p
 
 Do not commit real credentials. Use placeholders and owner-controlled setup.
 
-| Role | Minimum for demo | Email | Password | Setup |
+| Role | Live count (Phase 47 audit) | Email | Password | Setup |
 |---|---:|---|---|---|
-| Customer | 5 (owner plan) | `<customer-demo-email-{1..5}>` | `<owner-set-password>` | Register through Client/Better Auth flow; verify canonical `user.role=customer`. |
-| Technician | 4 (owner plan) | `<technician-demo-email-{1..4}>` | `<owner-set-password>` | Register through Client/Better Auth flow; provision/verify `user.role=technician` through approved owner-controlled/admin workflow. |
+| Customer | 7 | `<customer-demo-email-{1..7}>` | `<owner-set-password>` | Register through Client/Better Auth flow; verify canonical `user.role=customer`. |
+| Technician | 8 | `<technician-demo-email-{1..8}>` | `<owner-set-password>` | Register through Client/Better Auth flow; provision/verify `user.role=technician` through approved owner-controlled/admin workflow. |
 | Admin | 1 | `<admin-demo-email>` | `<owner-set-password>` | Manual owner-controlled provisioning only. Do not auto-seed Admin credentials. |
 
 **Account-readiness checklist (owner action required, no accounts created by agent):**
 
-- [ ] Create/verify 5 Customer accounts through Better Auth (no passwords/PII in repo).
-- [ ] Create/verify 4 Technician accounts through Better Auth; confirm canonical role is `technician`.
-- [ ] Confirm Admin account exists and role is `admin` (manual owner-controlled).
+- [ ] Confirm 7 Customer accounts through Better Auth canonical `user` records (Phase 47 read-only audit confirmed the live count; no passwords/PII in repo).
+- [ ] Confirm 8 Technician accounts through Better Auth; confirm canonical role is `technician` (Phase 47 read-only audit confirmed the live count).
+- [ ] Confirm Admin account exists and role is `admin` (Phase 47 read-only audit: 1 admin; manual owner-controlled).
 - [ ] Capture canonical `user` ObjectIds for 2 technician accounts used by demo seed (techA/Laptop specialist = owner-reported Istiak; techB = owner-reported Nayim) and 1 customer account used by demo booking seed.
 - [ ] Run seed demo in a safe non-production demo database only after owner review (`--dry-run` first, then `--apply --confirm-seed`).
 - [ ] Verify seeded services/bookings reference the intended existing users; verify no unrelated records overwritten.
@@ -292,6 +293,18 @@ Notes:
 - Admin provisioning remains deliberate and manual/owner-controlled; see root `AUTH_TEST_ENVIRONMENT.md`.
 - Seed script requires existing Technician/Customer IDs and does not create login-capable accounts.
 
+## Remaining Outstanding Work (Phase 47 Read-Only Audit)
+
+These are data/owner-input items, not code defects. Statuses use the workspace uncertainty marker `PENDING OWNER DECISION` where a decision/input is required and `BLOCKED` where owner-controlled evidence is required. No production data was changed in Phase 47/48.
+
+| Item | Evidence (Phase 47 read-only audit) | Status |
+|---|---|---|
+| Service technician ownership | 9 of 17 services reference a single orphan technician ref (`6b033d…b1ca`, masked) not present in canonical `user` or legacy `users`. Ownership is **not** fixed. | `PENDING OWNER DECISION` |
+| Missing service categories | Live catalog has only Laptop & PC (5), Smartphone (4), AC (4), Refrigerator (4). TV, Washing Machine, and Electrical are absent — categories are **not** fully populated. | `PENDING OWNER DECISION` |
+| ImgBB image compliance | 16 of 17 services use `images.unsplash.com`; only 1 uses `i.ibb.co`. Compliance is **not** complete; owner-supplied ImgBB URLs/uploads are required. | `PENDING OWNER DECISION` |
+| Stripe Test Mode E2E | Post-fix Checkout, signed webhook delivery, paid state, history/admin revenue, and duplicate-webhook idempotency are **not** verified with live evidence. | `BLOCKED` |
+| Deployment commit SHA | Live URLs are confirmed; the exact deployed commit SHA is **not** yet confirmed by the owner. | `PENDING OWNER DECISION` |
+
 ## Submission Readiness Checklist
 
 Status labels: IMPLEMENTED (source present), TESTED (automated/mocked evidence), VERIFIED (review against authoritative owner/live evidence), OWNER ACTION REQUIRED (owner-controlled task), BLOCKED (missing source/action prevents completion).
@@ -299,15 +312,15 @@ Status labels: IMPLEMENTED (source present), TESTED (automated/mocked evidence),
 - [x] IMPLEMENTED — Project purpose/overview, server API responsibilities, repo links, feature list, stack, setup, env variable names (never values), seed/demo instructions, Stripe Test Mode server boundary, and demo account placeholders documented in this README.
 - [x] TESTED — Server source/tests cover seed safety/idempotency, 28-service/7-category coverage, booking status coverage, payment idempotency, role/ownership, and paid-only revenue with mocked/local tests.
 - [ ] VERIFIED — Official complete Assignment 9 Category 006 specification/guide files are not present in workspace docs; full official reconciliation remains `PENDING OWNER DECISION`.
-- [ ] OWNER ACTION REQUIRED — Live Client URL, Server/API URL, real demo credentials, and deployment SHA confirmation must be supplied by owner; no live URL/credential is invented here.
-- [ ] OWNER ACTION REQUIRED — 5 Customer / 4 Technician / 1 Admin accounts and canonical ObjectIds for seed references must be created/verified in intended environment.
+- [ ] OWNER ACTION REQUIRED — Real demo credentials and deployed commit SHA confirmation must be supplied by owner; live Client/Server URLs are confirmed and documented above. No credential is invented here.
+- [ ] OWNER ACTION REQUIRED — Live canonical account counts confirmed by the Phase 47 read-only audit: 7 Customer / 8 Technician / 1 Admin; canonical ObjectIds for seed references and secure credential handoff remain owner-controlled.
 - [ ] OWNER ACTION REQUIRED — Valid ImgBB URLs for all 28 demo services must be uploaded/provided; current seed URLs are Unsplash placeholders and are not claimed ImgBB-compliant.
 - [ ] BLOCKED — Live Stripe Test Mode E2E (real Checkout, signed webhook delivery, paid state, history/admin revenue, duplicate webhook idempotency) requires owner-controlled live evidence.
-- [ ] OWNER ACTION REQUIRED — Suspicious historical booking/payment remediation requires owner review, correct amount confirmation, and explicit authorization before the guarded Phase 41 script is applied.
+- [x] RESOLVED — Suspicious historical booking/payment records were deleted by the owner; the Phase 47 read-only audit confirmed `bookings=0` and `payments=0`. No cleanup script was executed by the agent.
 - [ ] OWNER ACTION REQUIRED — Production smoke/responsive/error checks, official X handle decision (D7), and secure submission credential/live URL handoff.
 
 ## Deployment / Production Status
 
-- Live API deployment: `PENDING OWNER DEPLOYMENT`.
+- Live API deployment: https://fxmate-server.vercel.app (owner-confirmed). Deployed commit SHA: `PENDING OWNER DECISION`.
 - Production MongoDB/Stripe/ImgBB/live E2E verification: not claimed here.
 - Any deployment config added later must keep Client and Server independent.
