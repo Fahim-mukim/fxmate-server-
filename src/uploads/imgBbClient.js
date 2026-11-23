@@ -43,21 +43,44 @@ function classifyFetchError(error) {
   return "fetch_error";
 }
 
-function isImgBbImageUrl(value) {
+const TRUSTED_IMGBB_IMAGE_HOSTS = new Set(["i.ibb.co", "i.imgbb.com"]);
+
+function validateImgBbImageUrl(value) {
+  if (typeof value !== "string" || value.trim() === "") {
+    return { ok: false, reason: "missing_url" };
+  }
+
   let parsed;
   try {
     parsed = new URL(value);
   } catch {
-    return null;
+    return { ok: false, reason: "malformed_url" };
   }
 
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
-    return null;
+  const diagnostics = {
+    protocol: parsed.protocol,
+    hostname: parsed.hostname,
+    hasUsername: Boolean(parsed.username),
+    hasPassword: Boolean(parsed.password),
+    hasPort: Boolean(parsed.port),
+    hasQuery: Boolean(parsed.search),
+    hasHash: Boolean(parsed.hash),
+  };
+
+  if (parsed.protocol !== "https:") {
+    return { ok: false, reason: "invalid_protocol", diagnostics };
   }
-  if (parsed.hostname !== "i.imgbb.com" && !parsed.hostname.endsWith(".imgbb.com")) {
-    return null;
+  if (parsed.username || parsed.password) {
+    return { ok: false, reason: "credentials_not_allowed", diagnostics };
   }
-  return parsed.toString();
+  if (parsed.port) {
+    return { ok: false, reason: "unexpected_port", diagnostics };
+  }
+  if (!TRUSTED_IMGBB_IMAGE_HOSTS.has(parsed.hostname)) {
+    return { ok: false, reason: "untrusted_host", diagnostics };
+  }
+
+  return { ok: true, url: parsed.toString(), diagnostics };
 }
 
 export function createImgBbClient({
@@ -187,15 +210,18 @@ export function createImgBbClient({
       throw imageUploadFailed();
     }
 
-    const imageUrl = isImgBbImageUrl(data.url);
-    if (!imageUrl) {
+    const validatedUrl = validateImgBbImageUrl(data.url);
+    if (!validatedUrl.ok) {
       safeLog(logger, "error", {
         stage: "validate_response",
         configured,
         outcome: "unsafe_image_url",
+        validationReason: validatedUrl.reason,
+        ...(validatedUrl.diagnostics ?? {}),
       });
       throw imageUploadFailed();
     }
+    const imageUrl = validatedUrl.url;
 
     safeLog(logger, "info", {
       stage: "provider_response",

@@ -263,6 +263,57 @@ test("ImgBB client sends base64 to the server-side endpoint and returns safe fie
   assert.equal(form.get("name"), "photo.png");
 });
 
+test("ImgBB client accepts documented i.ibb.co image URLs and rejects unsafe variants", async () => {
+  const logs = [];
+  const logger = { error: (m) => logs.push(m), info: (m) => logs.push(m) };
+  const okClient = createImgBbClient({
+    apiKey: "test-placeholder",
+    logger,
+    fetchImpl: async () => new Response(JSON.stringify({
+      success: true,
+      data: { url: "https://i.ibb.co/w04Prt6/c1f64245afb2.gif", id: "ok", width: 1, height: 1 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }),
+  });
+  const ok = await okClient.uploadImage({ base64: PNG_BASE64, name: "photo.png" });
+  assert.equal(ok.url, "https://i.ibb.co/w04Prt6/c1f64245afb2.gif");
+
+  const badUrls = [
+    "http://i.ibb.co/w04Prt6/c1f64245afb2.gif",
+    "https://user:pass@i.ibb.co/w04Prt6/c1f64245afb2.gif",
+    "https://i.ibb.co:444/w04Prt6/c1f64245afb2.gif",
+    "https://i.ibb.co.evil.com/w04Prt6/c1f64245afb2.gif",
+    "https://evil.i.ibb.co/w04Prt6/c1f64245afb2.gif",
+    "https://ibb.co/w04Prt6",
+    "https://example.com/w04Prt6/c1f64245afb2.gif",
+    "ftp://i.ibb.co/w04Prt6/c1f64245afb2.gif",
+    "not-a-url",
+  ];
+  for (const badUrl of badUrls) {
+    const client = createImgBbClient({
+      apiKey: "test-placeholder",
+      logger,
+      fetchImpl: async () => new Response(JSON.stringify({
+        success: true,
+        data: { url: badUrl },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    });
+    await assert.rejects(
+      () => client.uploadImage({ base64: PNG_BASE64 }),
+      (error) => error.status === 502 && error.code === "IMAGE_HOST_FAILED",
+      `expected rejection for ${badUrl}`,
+    );
+  }
+
+  const serialized = logs.join("\n");
+  assert.ok(!serialized.includes("test-placeholder"), "logs must not contain API key");
+  assert.ok(!serialized.includes(PNG_BASE64), "logs must not contain image data");
+  for (const badUrl of badUrls) {
+    assert.ok(!serialized.includes(badUrl), `log must not contain full URL ${badUrl}`);
+  }
+  assert.match(serialized, /validationReason/);
+  assert.match(serialized, /"hostname":"i\.ibb\.co\.evil\.com"|"hostname":"evil\.i\.ibb\.co"|"hostname":"ibb\.co"|"hostname":"example\.com"/);
+});
+
 test("ImgBB client fails closed for missing configuration and bad upstream responses", async () => {
   const unconfigured = createImgBbClient({ fetchImpl: async () => {
     throw new Error("should not be called");
